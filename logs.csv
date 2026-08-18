@@ -1,0 +1,37 @@
+Created,Run ID,Framework,Benchmark,Metric,Score,Runtime (sec)
+2026-08-17T13:25:44+00:00,6TLXGqnMxTmkyBcaGYVhcd,inspect-ai,inspect_harbor/gorilla_bfcl_parity,accuracy,0.6748,1186
+2026-08-17T13:25:44+00:00,6TLXGqnMxTmkyBcaGYVhcd,inspect-ai,inspect_harbor/gorilla_bfcl_parity,stderr,0.0424,1186
+2026-08-17T16:54:14+00:00,L67rTm5rz3wkwVdTLMGDme,inspect-ai,inspect_evals/gpqa_diamond,accuracy,0.3699,28
+2026-08-17T16:54:14+00:00,L67rTm5rz3wkwVdTLMGDme,inspect-ai,inspect_evals/gpqa_diamond,stderr,0.0296,28
+2026-08-17T13:46:27+00:00,SXiGmZ3rL6Jo5GfFW5k3CQ,inspect-ai,inspect_evals/ifeval,final_acc (%) ⬆️,85.40,125
+2026-08-17T13:49:31+00:00,5nULEXnUnrZAoGScNiPXAz,inspect-ai,inspect_evals/bigcodebench,mean,0.4623,268
+2026-08-17T13:49:31+00:00,5nULEXnUnrZAoGScNiPXAz,inspect-ai,inspect_evals/bigcodebench,std,0.4988,268
+2026-08-17T13:48:32+00:00,E5pXHbdSxEt36gzzMbd9ux,inspect-ai,inspect_evals/gsm8k,accuracy,0.9143,59
+2026-08-17T13:48:32+00:00,E5pXHbdSxEt36gzzMbd9ux,inspect-ai,inspect_evals/gsm8k,stderr,0.0077,59
+2026-08-18T08:32:59+00:00,RAGTKDTHvdKtqLPbh9VrjS,inspect-ai,inspect_evals/ifeval,final_acc (%) ⬆️,85.60,651
+2026-08-18T08:53:40+00:00,8Ne2NqjJfEaRhohTeG2RFs,inspect-ai,inspect_harbor/gorilla_bfcl_parity,accuracy,0.6423,889
+2026-08-18T08:53:40+00:00,8Ne2NqjJfEaRhohTeG2RFs,inspect-ai,inspect_harbor/gorilla_bfcl_parity,stderr,0.0434,889
+2026-08-18T08:45:22+00:00,9GLQfwg4s9hjePLTVJuM8s,inspect-ai,inspect_evals/bigcodebench,mean,0.4553,319
+2026-08-18T08:45:22+00:00,9GLQfwg4s9hjePLTVJuM8s,inspect-ai,inspect_evals/bigcodebench,std,0.4982,319
+2026-08-18T08:43:50+00:00,bpy68ViwYKGXb57xzLfMD5,inspect-ai,inspect_evals/gpqa_diamond,accuracy,0.4217,36
+2026-08-18T08:43:50+00:00,bpy68ViwYKGXb57xzLfMD5,inspect-ai,inspect_evals/gpqa_diamond,stderr,0.0296,36
+2026-08-18T08:44:26+00:00,USzJbExGd5FC7kqGgCNJuU,inspect-ai,inspect_evals/gsm8k,accuracy,0.9143,55
+2026-08-18T08:44:26+00:00,USzJbExGd5FC7kqGgCNJuU,inspect-ai,inspect_evals/gsm8k,stderr,0.0077,55
+2026-08-17T13:25:44+00:00,6TLXGqnMxTmkyBcaGYVhcd,inspect-ai,inspect_harbor/gorilla_bfcl_parity,accuracy,0.6748,1186
+2026-08-17T13:25:44+00:00,6TLXGqnMxTmkyBcaGYVhcd,inspect-ai,inspect_harbor/gorilla_bfcl_parity,stderr,0.0424,1186
+2026-08-17T16:54:14+00:00,L67rTm5rz3wkwVdTLMGDme,inspect-ai,inspect_evals/gpqa_diamond,accuracy,0.3699,28
+2026-08-17T16:54:14+00:00,L67rTm5rz3wkwVdTLMGDme,inspect-ai,inspect_evals/gpqa_diamond,stderr,0.0296,28
+2026-08-17T13:46:27+00:00,SXiGmZ3rL6Jo5GfFW5k3CQ,inspect-ai,inspect_evals/ifeval,final_acc (%) ⬆️,85.40,125
+2026-08-17T13:49:31+00:00,5nULEXnUnrZAoGScNiPXAz,inspect-ai,inspect_evals/bigcodebench,mean,0.4623,268
+2026-08-17T13:49:31+00:00,5nULEXnUnrZAoGScNiPXAz,inspect-ai,inspect_evals/bigcodebench,std,0.4988,268
+2026-08-17T13:48:32+00:00,E5pXHbdSxEt36gzzMbd9ux,inspect-ai,inspect_evals/gsm8k,accuracy,0.9143,59
+2026-08-17T13:48:32+00:00,E5pXHbdSxEt36gzzMbd9ux,inspect-ai,inspect_evals/gsm8k,stderr,0.0077,59
+2026-08-18T08:32:59+00:00,RAGTKDTHvdKtqLPbh9VrjS,inspect-ai,inspect_evals/ifeval,final_acc (%) ⬆️,85.60,651
+2026-08-18T08:53:40+00:00,8Ne2NqjJfEaRhohTeG2RFs,inspect-ai,inspect_harbor/gorilla_bfcl_parity,accuracy,0.6423,889
+2026-08-18T08:53:40+00:00,8Ne2NqjJfEaRhohTeG2RFs,inspect-ai,inspect_harbor/gorilla_bfcl_parity,stderr,0.0434,889
+2026-08-18T08:45:22+00:00,9GLQfwg4s9hjePLTVJuM8s,inspect-ai,inspect_evals/bigcodebench,mean,0.4553,319
+2026-08-18T08:45:22+00:00,9GLQfwg4s9hjePLTVJuM8s,inspect-ai,inspect_evals/bigcodebench,std,0.4982,319
+2026-08-18T08:43:50+00:00,bpy68ViwYKGXb57xzLfMD5,inspect-ai,inspect_evals/gpqa_diamond,accuracy,0.4217,36
+2026-08-18T08:43:50+00:00,bpy68ViwYKGXb57xzLfMD5,inspect-ai,inspect_evals/gpqa_diamond,stderr,0.0296,36
+2026-08-18T08:44:26+00:00,USzJbExGd5FC7kqGgCNJuU,inspect-ai,inspect_evals/gsm8k,accuracy,0.9143,55
+2026-08-18T08:44:26+00:00,USzJbExGd5FC7kqGgCNJuU,inspect-ai,inspect_evals/gsm8k,stderr,0.0077,55

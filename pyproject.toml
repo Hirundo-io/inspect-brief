@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+inspect-brief = "inspect_brief.cli:app"
+
+[project]
+name = "inspect-brief"
+version = "0.1.0"
+description = "Generate standardized concise metric summaries for Inspect evaluations."
+authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
+readme = "README.md"
+license = { file = "LICENSE" }
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+]
+keywords = [
+  "inspect-ai",
+  "evaluation",
+  "metrics",
+  "summarization",
+  "report generation",
+]
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "inspect-ai",
+  "typer",
+]
+
+[dependency-groups]
+dev = [
+  "ruff>=0.11.11,<1.0.0",
+  "bumpver>=2024.1130",
+  "pytest>=8.3.5",
+  "pre-commit>=4.3.0",
+  "pyrefly>=0.63.1",
+]
+docs = ["sphinx>=8.0.0"]
+
+[tool.uv.dependency-groups]
+docs = { requires-python = ">=3.12" }
+
+[tool.uv.sources]
+inspect-brief = { path = ".", editable = true }
+
+[tool.setuptools.packages.find]
+include = ["inspect_brief*"]
+exclude = ["results*"]
+
+[tool.bumpver]
+current_version = "0.1.0"
+version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
+
+[tool.bumpver.file_patterns]
+"pyproject.toml" = [
+  '^version = "{version}"$',
+  '^current_version = "{version}"$',
+]
+"inspect_brief/__init__.py" = ['^__version__ = "{version}"$']
+
+[project.urls]
+Homepage = "https://github.com/Hirundo-io/inspect-brief"
+
+[tool.ruff.lint]
+select = [
+  "E4",
+  "E7",
+  "E9",
+  "F",
+  "W",
+  "C901",
+  "I",
+  "N",
+  "UP",
+  "S",
+  "B",
+  "A",
+  "TID",
+  "TC",
+]
+ignore = ["N806"]
+
+fixable = ["ALL"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["S"]
+
+[tool.pyrefly]
+min-severity = "warn"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "dist", "logs"]
