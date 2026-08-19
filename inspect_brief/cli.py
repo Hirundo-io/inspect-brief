@@ -109,7 +109,11 @@ def main(
         str | None,
         typer.Option(
             "--csv-path",
-            help="The path to the output CSV file",
+            help=(
+                "The path to the output CSV file. "
+                "If not provided, the output will be saved to 'brief_results.csv' "
+                "in the current working directory or the log_dir if provided."
+            ),
         ),
     ] = None,
     skip_existing: Annotated[

@@ -1,11 +1,13 @@
 # inspect-brief
-Standardized concise metric summaries for Inspect evaluations.
+
+Generate standardized concise metric summaries from [Inspect AI](https://inspect.aisi.org.uk/) evaluation logs and append them to a CSV.
 
 ## Features
 
-- A common CLI for launching model evaluations across supported adapters.
-- Optional managed local vLLM server for frameworks that can use an OpenAI-compatible endpoint.
-- Per-run raw framework logs plus an appended summary CSV.
+- Load Inspect `.eval` logs from a directory (recursive) and/or explicit file paths
+- Optionally filter by task name and select target metrics per task
+- Append results to a CSV (rewrites the header when columns change, preserving existing rows)
+- Skip runs already present in the CSV via `--skip-existing`
 
 ## Installation
 
@@ -17,46 +19,96 @@ uv sync
 
 ## Usage
 
-```bash
-inspect-brief MODEL FRAMEWORK TASK[,TASK...] [OPTIONS] [FRAMEWORK_OPTIONS]
-```
-
-Prefer the console script after editable install, or use:
+Prefer the console script after install, or the module form:
 
 ```bash
-python -m hirundo_evals MODEL FRAMEWORK TASK[,TASK...] [OPTIONS] [FRAMEWORK_OPTIONS]
+inspect-brief [OPTIONS]
+python -m inspect_brief [OPTIONS]
 ```
 
-### Basic Run
+At least one of `--log-dir` or `--log-files` is required.
+
+### Options
+
+| Option | Description |
+| --- | --- |
+| `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files |
+| `--log-files` | One or more log paths (comma-separated) |
+| `--tasks` | Tasks to include (comma-separated); others are skipped |
+| `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
+| `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |
+| `--skip-existing` | Skip task runs whose Run ID is already in the CSV |
+
+### Basic examples
+
+Summarize every `.eval` under a log tree:
 
 ```bash
-hirundo-evals MODEL FRAMEWORK TASK --framework-option value
+inspect-brief --log-dir /path/to/inspect/logs
 ```
 
-Multiple tasks are comma-separated:
+Summarize specific files and write to a chosen CSV:
 
 ```bash
-hirundo-evals MODEL FRAMEWORK TASK_A,TASK_B --framework-option value
+inspect-brief \
+  --log-files /path/to/a.eval,/path/to/b.eval \
+  --csv-path results.csv
 ```
 
-### Outputs
-
-By default, outputs are written under `logs/<model>/<framework>/<run_timestamp>/`, with a summary CSV at `logs/<model>/results.csv`.
+Filter tasks and skip runs already recorded:
 
 ```bash
-hirundo-evals MODEL FRAMEWORK TASK --output-dir eval_outputs
+inspect-brief \
+  --log-dir /path/to/inspect/logs \
+  --tasks inspect_evals/gpqa_diamond,inspect_harbor/gorilla_bfcl_parity \
+  --csv-path results.csv \
+  --skip-existing
 ```
 
-The summary CSV is appended across runs and includes fields such as framework, run ID, benchmark, metric, score, and runtime.
+### Target metrics
 
-Example `results.csv` output:
+When `--target-metrics` is omitted, every metric present in the log scores is exported (with a scorer prefix when a log has multiple scorers).
 
-| Run ID | Framework | Benchmark | Metric | Score | Runtime (sec) |
+When provided, pass a JSON object (inline or as a file path) mapping each task name to a list of `InspectScore` objects. Each object must have exactly these keys:
+
+- `name` — metric name as it appears in the Inspect log
+- `is_percentage` — whether to treat the value as a percentage (appends ` (%)` to the metric label)
+- `is_higher_better` — appends `⬆️` or `⬇️` to the metric label
+- `is_normalized` — if `is_percentage` is true and this is true, multiply the value by `100`
+
+Example (quote the JSON for the shell):
+
+```bash
+inspect-brief --log-dir /path/to/logs --target-metrics '{
+  "inspect_evals/gpqa_diamond": [
+    {
+      "name": "accuracy",
+      "is_percentage": true,
+      "is_higher_better": true,
+      "is_normalized": true
+    }
+  ]
+}'
+```
+
+Or point at a file:
+
+```bash
+inspect-brief --log-dir /path/to/logs --target-metrics ./target_metrics.json
+```
+
+## Output
+
+Results are appended to the CSV. Columns:
+
+| Created | Run ID | Benchmark | Metric | Score | Runtime (sec) |
 | --- | --- | --- | --- | --- | --- |
-| 20260624_233538 | inspect-ai | ifeval | final_acc (%) ⬆️ | 67.00 | 600 |
-| 20260624_233538 | inspect-ai | scicode | percentage_main_problems_solved (%) ⬆️ | 45.00 | 1200 |
-| 20260624_233538 | inspect-ai | scicode | percentage_subproblems_solved (%) ⬆️ | 56.67 | 1200 |
+| 2026-08-17T16:54:14+00:00 | L67rTm5rz3wkwVdTLMGDme | inspect_evals/gpqa_diamond | accuracy | 0.3699 | 28 |
+
+- **Created** comes from `log.eval.created`, falling back to `log.stats.started_at`
+- **Score** is formatted to 2 decimal places when `> 1.0`, otherwise 4 decimal places
+- Failed or incomplete runs record a status string in the Score column when applicable
 
 ## Contributing
 
-See [`AGENTS.md`](AGENTS.md) for project guidelines, test suite setup, and PR practices.
+See [`inspect_brief/AGENTS.md`](inspect_brief/AGENTS.md) for project guidelines.

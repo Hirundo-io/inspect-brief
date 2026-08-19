@@ -30,7 +30,6 @@ OutputEntry = TypedDict(
     {
         "Created": str,
         "Run ID": str,
-        "Framework": str,
         "Benchmark": str,
         "Metric": str,
         "Score": float | str,
@@ -207,7 +206,6 @@ def prepare_log_results(
             {
                 "Created": created,
                 "Run ID": log.eval.task_id,
-                "Framework": "inspect-ai",
                 "Benchmark": task_name,
                 "Metric": score_name,
                 "Score": score_value,
