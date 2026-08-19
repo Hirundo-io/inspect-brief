@@ -253,7 +253,7 @@ def prepare_results(
         logs = load_logs(log_dir, log_files, export_jsons)
     if isinstance(logs, EvalLog):
         logs = [logs]
-    # Filter the logs by tasks
+    # Filter the logs by tasks and/or already-exported run IDs
     if tasks:
         existing_tasks = {log.eval.task for log in logs}
         missing_tasks = set(tasks) - existing_tasks
@@ -261,16 +261,13 @@ def prepare_results(
             logging.warning(
                 f"Skipping tasks without Inspect logs: {missing_tasks}. Available tasks with logs: {existing_tasks}"
             )
-        logs = [
-            log
-            for log in logs
-            if log.eval.task in tasks
-            and log.eval.task_id not in (task_ids_to_skip or [])
-        ]
-    else:
-        tasks = [log.eval.task for log in logs]
+        logs = [log for log in logs if log.eval.task in tasks]
+    if task_ids_to_skip:
+        skip_ids = set(task_ids_to_skip)
+        logs = [log for log in logs if log.eval.task_id not in skip_ids]
+    tasks = [log.eval.task for log in logs]
     logging.info(
-        f"🧮 Preparing results for {len(tasks)} task{'s' if len(tasks) > 1 else ''}: {', '.join(tasks)}"
+        f"🧮 Preparing results for {len(tasks)} task{'s' if len(tasks) != 1 else ''}: {', '.join(tasks) or '(none)'}"
     )
     # Prepare the results for CSV export
     results: list[OutputEntry] = []
@@ -353,10 +350,12 @@ def export_results(
     # Prepare the output path
     if not csv_path:
         csv_path = str(Path(log_dir or Path.cwd()) / "brief_results.csv")
+    logging.info("📦 Gathering results to export to %s", csv_path)
     Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
     # Inspect existing results
     fieldnames, existing_fieldnames, existing_rows, should_write_header = inspect_existing_results(csv_path)
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
+    logging.info("⏭️ Skipping tasks with existing results: %s", set(task_ids_to_skip))
     # Prepare the results for CSV export
     results = [
         format_output_row(row)
