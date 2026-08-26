@@ -8,6 +8,7 @@ Generate standardized concise metric summaries from [Inspect AI](https://inspect
 - Optionally filter by task name and select target metrics per task
 - Append results to a CSV (rewrites the header when columns change, preserving existing rows)
 - Skip runs already present in the CSV via `--skip-existing`
+- Optionally export each task automatically through an Inspect Hook
 
 ## Installation
 
@@ -27,6 +28,37 @@ python -m inspect_brief [OPTIONS]
 ```
 
 At least one of `--log-dir` or `--log-files` is required.
+
+## Inspect Hook
+
+The package also provides an opt-in Inspect Hook. Configure an output path, then
+run Inspect normally; the hook appends a brief when each task completes.
+
+```bash
+export INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
+inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
+```
+
+The hook is disabled unless `INSPECT_BRIEF_CSV_PATH` is set. Set
+`INSPECT_BRIEF_ENABLED=0` to disable it explicitly.
+
+You can put this configuration in an untracked `.env` file in the project
+directory; it is loaded when Inspect imports the hook:
+
+```dotenv
+INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
+```
+
+Optional hook configuration mirrors the CLI:
+
+| Variable | Description |
+| --- | --- |
+| `INSPECT_BRIEF_TASKS` | Tasks to include (comma-separated) |
+| `INSPECT_BRIEF_TARGET_METRICS` | Target-metrics JSON object or path to a JSON file |
+| `INSPECT_BRIEF_SKIP_EXISTING` | Set to `1`, `true`, `yes`, or `on` to skip Run IDs already in the CSV |
+
+The `inspect-brief` CLI remains available for summarizing existing logs or
+regenerating a CSV.
 
 ### Options
 

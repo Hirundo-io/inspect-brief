@@ -1,72 +1,43 @@
-import json
-from pathlib import Path
-from typing import Annotated, get_type_hints
+import logging
+from typing import Annotated
 
 import typer
 
-from inspect_brief.core import InspectScore, export_results
-
-_INSPECT_SCORE_KEYS = set(get_type_hints(InspectScore))
+from inspect_brief.core import export_results
+from inspect_brief.parsing import parse_comma_separated, parse_target_metrics
 
 app = typer.Typer(
     help="Inspect Brief: A CLI for generating concise metric summaries for Inspect evaluations."
 )
 
 
-def parse_comma_separated(value: str | None) -> list[str] | None:
-    """Parse a comma-separated CLI string into a list of non-empty stripped items."""
-    if value is None:
-        return None
-    items = [item.strip() for item in value.split(",")]
+def configure_logging() -> None:
+    """Configure user-facing logging for the standalone CLI."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
 
-    return [item for item in items if item] or None
 
-
-def parse_target_metrics(
+def parse_target_metrics_option(
     value: str | None,
-) -> dict[str, list[InspectScore]] | None:
-    """Parse --target-metrics JSON (inline string or path to a JSON file)."""
-    if value is None:
-        return None
+) -> dict[str, list] | None:
+    """Convert shared target-metrics validation errors into CLI parameter errors.
 
-    path = Path(value)
-    raw = path.read_text(encoding="utf-8") if path.is_file() else value
+    Args:
+        value: Inline target-metrics JSON or a path to a JSON file.
+
+    Returns:
+        Target metrics grouped by task, or None when no value is supplied.
+
+    Raises:
+        typer.BadParameter: If the supplied target metrics are invalid.
+    """
     try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise typer.BadParameter(
-            "Must be a JSON object (or path to one) mapping "
-            "task name -> list of InspectScore objects with keys "
-            f"{sorted(_INSPECT_SCORE_KEYS)}"
-        ) from e
-
-    if not isinstance(parsed, dict):
-        raise typer.BadParameter("Must be a JSON object mapping task -> list of metrics")
-
-    result: dict[str, list[InspectScore]] = {}
-    for task, metrics in parsed.items():
-        if not isinstance(task, str) or not isinstance(metrics, list):
-            raise typer.BadParameter(
-                f"Task '{task}' must map to a list of InspectScore objects"
-            )
-        scores: list[InspectScore] = []
-        for i, metric in enumerate(metrics):
-            if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
-                raise typer.BadParameter(
-                    f"Metric {i} for task '{task}' must be an object with exactly "
-                    f"keys {sorted(_INSPECT_SCORE_KEYS)}"
-                )
-            scores.append(
-                InspectScore(
-                    name=metric["name"],
-                    is_percentage=bool(metric["is_percentage"]),
-                    is_higher_better=bool(metric["is_higher_better"]),
-                    is_normalized=bool(metric["is_normalized"]),
-                )
-            )
-        result[task] = scores
-
-    return result
+        return parse_target_metrics(value)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
 
 @app.command(
@@ -130,13 +101,12 @@ def main(
     CLI format:
         inspect-brief --log-dir <log_dir> --log-files <log_files> --tasks <tasks> --target-metrics <target_metrics> --csv-path <csv_path> --skip-existing
     """
-    # Generate the concise metric summaries for the Inspect evaluations
-    # and export them to a CSV file
+    configure_logging()
     export_results(
         log_dir=log_dir,
         log_files=parse_comma_separated(log_files),
         tasks=parse_comma_separated(tasks),
-        target_metrics=parse_target_metrics(target_metrics),
+        target_metrics=parse_target_metrics_option(target_metrics),
         csv_path=csv_path,
         skip_existing=skip_existing,
     )

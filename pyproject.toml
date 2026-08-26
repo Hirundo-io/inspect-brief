@@ -5,6 +5,9 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 inspect-brief = "inspect_brief.cli:app"
 
+[project.entry-points.inspect_ai]
+inspect_brief = "inspect_brief._registry"
+
 [project]
 name = "inspect-brief"
 version = "0.1.0"
@@ -27,6 +30,7 @@ keywords = [
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "inspect-ai",
+  "python-dotenv",
   "typer",
 ]
 

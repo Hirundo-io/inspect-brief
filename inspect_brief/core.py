@@ -7,6 +7,8 @@ from typing import TypedDict, get_type_hints
 
 from inspect_ai.log import EvalLog, read_eval_log, write_eval_log
 
+logger = logging.getLogger(__name__)
+
 
 class InspectScore(TypedDict):
     """
@@ -82,6 +84,8 @@ def load_logs(
     if not log_dir and not log_files:
         raise ValueError("At least one of log_dir or log_files must be provided")
     if not log_files:
+        if log_dir is None:
+            raise ValueError("log_dir is required when log_files is not provided")
         log_files = [str(path) for path in Path(log_dir).rglob("*.eval")]
     if isinstance(log_files, str):
         log_files = [log_files]
@@ -91,18 +95,28 @@ def load_logs(
             log = read_eval_log(log_file)
             logs.append(log)
             if export_jsons:
-                logging.info("📝 Exporting Inspect log %s as JSON", log_file)
+                logger.info("📝 Exporting Inspect log %s as JSON", log_file)
                 try:
-                    write_eval_log(log, Path(log_file).with_suffix(".json"), format="json")
+                    write_eval_log(
+                        log, Path(log_file).with_suffix(".json"), format="json"
+                    )
                 except Exception:
-                    logging.warning("❌ Could not export Inspect log %s", log_file)
+                    logger.warning("❌ Could not export Inspect log %s", log_file)
         except Exception:
-            logging.warning("❌ Could not load Inspect log %s", log_file)
+            logger.warning("❌ Could not load Inspect log %s", log_file)
 
     return logs
 
 
 def target_metric_name(target_metric: InspectScore) -> str:
+    """Format a configured metric name for CSV output.
+
+    Args:
+        target_metric: The configured metric definition.
+
+    Returns:
+        The metric name annotated with percentage and direction metadata.
+    """
     metric_name = target_metric["name"]
     if target_metric["is_percentage"]:
         metric_name += " (%)"
@@ -113,6 +127,15 @@ def target_metric_name(target_metric: InspectScore) -> str:
 def failed_score_values(
     status: str, target_metrics: list[InspectScore] | None
 ) -> dict[str, float | str]:
+    """Create CSV score values for an evaluation that did not succeed.
+
+    Args:
+        status: The Inspect evaluation status.
+        target_metrics: Optional configured metrics to include in the output.
+
+    Returns:
+        A status value or one failure value for each configured metric.
+    """
     if not target_metrics:
         return {"status": f"Failed ({status})"}
 
@@ -123,6 +146,15 @@ def failed_score_values(
 
 
 def all_score_values(scores) -> dict[str, float | str]:
+    """Extract every metric value from Inspect scorer results.
+
+    Args:
+        scores: The scorer results recorded in an Inspect evaluation log.
+
+    Returns:
+        Metric names mapped to their recorded values. Names include scorer
+        prefixes when more than one scorer produced metrics.
+    """
     add_scorer_prefix = len(scores) > 1
     score_values: dict[str, float | str] = {}
     for score in scores:
@@ -137,6 +169,16 @@ def all_score_values(scores) -> dict[str, float | str]:
 def target_score_values(
     scores, target_metrics: list[InspectScore]
 ) -> dict[str, float | str]:
+    """Extract configured metric values from Inspect scorer results.
+
+    Args:
+        scores: The scorer results recorded in an Inspect evaluation log.
+        target_metrics: The metric definitions to include in the output.
+
+    Returns:
+        Configured metric names mapped to their values or missing-metric
+        messages.
+    """
     score_values: dict[str, float | str] = {}
     for target_metric in target_metrics:
         metric_name = target_metric_name(target_metric)
@@ -150,9 +192,7 @@ def target_score_values(
             score_values[metric_name] = metric_value
             break
         else:
-            score_values[metric_name] = (
-                f"Metric '{target_metric['name']}' not found"
-            )
+            score_values[metric_name] = f"Metric '{target_metric['name']}' not found"
 
     return score_values
 
@@ -160,6 +200,15 @@ def target_score_values(
 def score_values(
     log: EvalLog, target_metrics: list[InspectScore] | None
 ) -> dict[str, float | str]:
+    """Select score values for an Inspect evaluation log.
+
+    Args:
+        log: The Inspect evaluation log to summarize.
+        target_metrics: Optional configured metrics to include.
+
+    Returns:
+        The selected scores, a failure status, or a no-scores status.
+    """
     if log.status != "success":
         return failed_score_values(log.status, target_metrics)
     if not log.results or not log.results.scores:
@@ -173,7 +222,9 @@ def score_values(
 
 
 def prepare_log_results(
-    log: EvalLog, target_metrics: list[InspectScore] | None = None
+    log: EvalLog,
+    target_metrics: list[InspectScore] | None = None,
+    log_progress: bool = True,
 ) -> list[OutputEntry]:
     """
     Prepare the results of the Inspect evaluation for CSV export.
@@ -181,25 +232,17 @@ def prepare_log_results(
     Args:
         log: The Inspect evaluation log.
         target_metrics (optional): The target metrics to include in the results.
+        log_progress: Whether to log progress while preparing results.
 
     Returns:
         The results of the Inspect evaluation for CSV export.
     """
     task_name = log.eval.task
-    if (
-        log.stats
-        and hasattr(log.stats, "started_at")
-        and hasattr(log.stats, "completed_at")
-    ):
-        runtime = get_runtime_from_timestamps(
-            log.stats.started_at, log.stats.completed_at
-        )
-    else:
-        runtime = "N/A"
-
-    created = getattr(log.eval, "created", None) or (
-        getattr(log.stats, "started_at", None) if log.stats else None
-    ) or "N/A"
+    runtime = get_runtime_from_timestamps(
+        log.stats.started_at,
+        log.stats.completed_at,
+    )
+    created = log.eval.created or log.stats.started_at or "N/A"
 
     results = [
         OutputEntry(
@@ -214,10 +257,15 @@ def prepare_log_results(
         )
         for score_name, score_value in score_values(log, target_metrics).items()
     ]
-    status_icon = "✅" if log.status == "success" else "❌"
-    logging.info(
-        f"{status_icon} Task: {task_name} | Status: {log.status} | Runtime: {runtime}"
-    )
+    if log_progress:
+        status_icon = "✅" if log.status == "success" else "❌"
+        logger.info(
+            "%s Task: %s | Status: %s | Runtime: %s",
+            status_icon,
+            task_name,
+            log.status,
+            runtime,
+        )
 
     return results
 
@@ -230,6 +278,7 @@ def prepare_results(
     target_metrics: dict[str, list[InspectScore]] | None = None,
     task_ids_to_skip: list[str] | None = None,
     export_jsons: bool = False,
+    log_progress: bool = True,
 ) -> list[OutputEntry]:
     """
     Prepare the results of the evaluation for CSV export.
@@ -242,6 +291,7 @@ def prepare_results(
         target_metrics (optional): The target metrics to include in the results by task.
         task_ids_to_skip (optional): The task IDs to skip in the results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        log_progress: Whether to log progress while preparing results.
 
     Returns:
         The results of the evaluation for CSV export.
@@ -258,7 +308,7 @@ def prepare_results(
         existing_tasks = {log.eval.task for log in logs}
         missing_tasks = set(tasks) - existing_tasks
         if missing_tasks:
-            logging.warning(
+            logger.warning(
                 f"Skipping tasks without Inspect logs: {missing_tasks}. Available tasks with logs: {existing_tasks}"
             )
         logs = [log for log in logs if log.eval.task in tasks]
@@ -266,29 +316,46 @@ def prepare_results(
         skip_ids = set(task_ids_to_skip)
         logs = [log for log in logs if log.eval.task_id not in skip_ids]
     tasks = [log.eval.task for log in logs]
-    logging.info(
-        f"🧮 Preparing results for {len(tasks)} task{'s' if len(tasks) != 1 else ''}: {', '.join(tasks) or '(none)'}"
-    )
+    if log_progress:
+        logger.info(
+            "🧮 Preparing results for %s task%s: %s",
+            len(tasks),
+            "s" if len(tasks) != 1 else "",
+            ", ".join(tasks) or "(none)",
+        )
     # Prepare the results for CSV export
     results: list[OutputEntry] = []
     for log in logs:
-        task_target_metrics: list[InspectScore] | None = target_metrics.get(log.eval.task) if target_metrics else None
-        results.extend(prepare_log_results(log, task_target_metrics))
+        task_target_metrics: list[InspectScore] | None = (
+            target_metrics.get(log.eval.task) if target_metrics else None
+        )
+        results.extend(
+            prepare_log_results(
+                log,
+                task_target_metrics,
+                log_progress=log_progress,
+            )
+        )
 
     return results
 
 
-def inspect_existing_results(csv_path: str) -> tuple[list[str], list[str], list[dict[str, str]], bool]:
+def inspect_existing_results(
+    csv_path: str,
+    log_progress: bool = True,
+) -> tuple[list[str], list[str], list[dict[str, str]], bool]:
     """
     Inspect the existing results of the evaluation to determine if the header has changed.
 
     Args:
         csv_path: The path to the output CSV file.
+        log_progress: Whether to log progress while inspecting results.
 
     Returns:
         The fieldnames, existing fieldnames, existing rows, and whether to write the header.
     """
-    logging.info("🔍 Inspecting existing results at %s", csv_path)
+    if log_progress:
+        logger.info("🔍 Inspecting existing results at %s", csv_path)
     fieldnames = list(get_type_hints(OutputEntry).keys())
     try:
         existing_fieldnames: list[str] = []
@@ -308,6 +375,14 @@ def inspect_existing_results(csv_path: str) -> tuple[list[str], list[str], list[
 
 
 def format_output_row(row: OutputEntry) -> dict[str, object]:
+    """Format an output row for stable CSV presentation.
+
+    Args:
+        row: The unformatted CSV output row.
+
+    Returns:
+        A copy of the row with numeric score values formatted as strings.
+    """
     formatted_row = dict(row)
     score = formatted_row.get("Score")
     if isinstance(score, int | float):
@@ -325,7 +400,8 @@ def export_results(
     csv_path: str | None = None,
     skip_existing: bool = False,
     export_jsons: bool = False,
-) -> None:
+    log_progress: bool = True,
+) -> int:
     """
     Export the results of the evaluation to a CSV file.
 
@@ -340,22 +416,21 @@ def export_results(
             in the current working directory or the log_dir if provided.
         skip_existing (optional): Whether to skip tasks with existing results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        log_progress: Whether to log detailed export progress.
     """
-    # Configure logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
     # Prepare the output path
     if not csv_path:
         csv_path = str(Path(log_dir or Path.cwd()) / "brief_results.csv")
-    logging.info("📦 Gathering results to export to %s", csv_path)
+    if log_progress:
+        logger.info("📦 Gathering results to export to %s", csv_path)
     Path(csv_path).parent.mkdir(parents=True, exist_ok=True)
     # Inspect existing results
-    fieldnames, existing_fieldnames, existing_rows, should_write_header = inspect_existing_results(csv_path)
+    fieldnames, existing_fieldnames, existing_rows, should_write_header = (
+        inspect_existing_results(csv_path, log_progress=log_progress)
+    )
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
-    logging.info("⏭️ Skipping tasks with existing results: %s", set(task_ids_to_skip))
+    if log_progress:
+        logger.info("⏭️ Skipping tasks with existing results: %s", set(task_ids_to_skip))
     # Prepare the results for CSV export
     results = [
         format_output_row(row)
@@ -367,6 +442,7 @@ def export_results(
             target_metrics=target_metrics,
             task_ids_to_skip=task_ids_to_skip,
             export_jsons=export_jsons,
+            log_progress=log_progress,
         )
     ]
     try:
@@ -379,10 +455,7 @@ def export_results(
                 writer = csv.DictWriter(f, fieldnames=fieldnames, restval="N/A")
                 writer.writeheader()
                 writer.writerows(
-                    {
-                        fieldname: row.get(fieldname, "N/A")
-                        for fieldname in fieldnames
-                    }
+                    {fieldname: row.get(fieldname, "N/A") for fieldname in fieldnames}
                     for row in existing_rows
                 )
             should_write_header = False
@@ -392,6 +465,8 @@ def export_results(
             if should_write_header:
                 writer.writeheader()
             writer.writerows(results)
-        logging.info("📝 Finished writing results to %s", csv_path)
+        if log_progress:
+            logger.info("📝 Finished writing results to %s", csv_path)
+        return len(results)
     except Exception as e:
         raise Exception(f"Failed to write CSV file: {e}") from e
