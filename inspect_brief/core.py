@@ -88,12 +88,16 @@ def load_logs(
     paths = list(log_files or [])
     if log_dir:
         paths.extend(str(path) for path in Path(log_dir).rglob("*.eval"))
-    # Resolve before deduplicating so equivalent relative paths, absolute paths, and
-    # symlinked paths are only loaded once in a mixed file/directory invocation.
-    log_files = list(dict.fromkeys(str(Path(path).resolve()) for path in paths))
     logs: list[EvalLog] = []
-    for log_file in log_files:
+    resolved_paths: set[Path] = set()
+    for log_file in paths:
         try:
+            # Use canonical paths only as deduplication keys. Keeping the input path
+            # preserves its location for optional JSON sidecar exports.
+            resolved_path = Path(log_file).resolve()
+            if resolved_path in resolved_paths:
+                continue
+            resolved_paths.add(resolved_path)
             log = read_eval_log(log_file)
             logs.append(log)
             if export_jsons:

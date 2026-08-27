@@ -112,8 +112,40 @@ def test_load_logs_deduplicates_equivalent_paths(monkeypatch, tmp_path: Path) ->
     monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
     monkeypatch.chdir(tmp_path)
 
-    assert load_logs(str(tmp_path), "run.eval", False) == [str(log_path)]
-    assert loaded == [str(log_path)]
+    assert load_logs(str(tmp_path), "run.eval", False) == ["run.eval"]
+    assert loaded == ["run.eval"]
+
+
+def test_load_logs_skips_unresolvable_paths_and_continues(
+    monkeypatch, tmp_path: Path
+) -> None:
+    loop = tmp_path / "loop.eval"
+    loop.symlink_to(loop)
+    valid = tmp_path / "valid.eval"
+    valid.touch()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_files=[str(loop), str(valid)]) == [str(valid)]
+    assert loaded == [str(valid)]
+
+
+def test_load_logs_exports_json_beside_symlink(monkeypatch, tmp_path: Path) -> None:
+    target = tmp_path / "target.eval"
+    target.touch()
+    symlink = tmp_path / "linked.eval"
+    symlink.symlink_to(target)
+    exported: list[Path] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda log, path, **_: exported.append(path),
+    )
+
+    load_logs(log_files=str(symlink), export_jsons=True)
+
+    assert exported == [symlink.with_suffix(".json")]
 
 
 def test_empty_target_metric_selection_exports_no_rows() -> None:
