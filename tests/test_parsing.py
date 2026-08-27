@@ -62,3 +62,27 @@ def test_parse_target_metrics_reads_json_file(tmp_path: Path) -> None:
 def test_parse_target_metrics_rejects_invalid_field_types(metric, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         parse_target_metrics(json.dumps({"task-a": [metric]}))
+
+
+def test_parse_target_metrics_rejects_duplicate_output_labels() -> None:
+    with pytest.raises(ValueError, match="duplicates the output label"):
+        parse_target_metrics(
+            json.dumps(
+                {
+                    "task-a": [
+                        {
+                            "name": "accuracy",
+                            "is_percentage": True,
+                            "is_higher_better": True,
+                            "is_normalized": False,
+                        },
+                        {
+                            "name": "accuracy",
+                            "is_percentage": True,
+                            "is_higher_better": True,
+                            "is_normalized": True,
+                        },
+                    ]
+                }
+            )
+        )

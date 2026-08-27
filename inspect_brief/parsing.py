@@ -4,9 +4,35 @@ import json
 from pathlib import Path
 from typing import get_type_hints
 
-from inspect_brief.core import InspectScore
+from inspect_brief.core import InspectScore, target_metric_name
 
 _INSPECT_SCORE_KEYS = set(get_type_hints(InspectScore))
+
+
+def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
+    """Validate and construct one configured metric."""
+    if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
+        raise ValueError(
+            f"Metric {index} for task '{task}' must be an object with exactly "
+            f"keys {sorted(_INSPECT_SCORE_KEYS)}"
+        )
+    if not isinstance(metric["name"], str):
+        raise ValueError(f"Metric {index} for task '{task}' must have a string name")
+    boolean_keys = _INSPECT_SCORE_KEYS - {"name"}
+    invalid_boolean_keys = [
+        key for key in boolean_keys if type(metric[key]) is not bool
+    ]
+    if invalid_boolean_keys:
+        raise ValueError(
+            f"Metric {index} for task '{task}' must use JSON booleans for "
+            f"{sorted(invalid_boolean_keys)}"
+        )
+    return InspectScore(
+        name=metric["name"],
+        is_percentage=metric["is_percentage"],
+        is_higher_better=metric["is_higher_better"],
+        is_normalized=metric["is_normalized"],
+    )
 
 
 def parse_comma_separated(value: str | None) -> list[str] | None:
@@ -61,33 +87,17 @@ def parse_target_metrics(value: str | None) -> dict[str, list[InspectScore]] | N
                 f"Task '{task}' must map to a list of InspectScore objects"
             )
         scores: list[InspectScore] = []
+        metric_labels: dict[str, int] = {}
         for index, metric in enumerate(metrics):
-            if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
+            score = _parse_metric(task, index, metric)
+            label = target_metric_name(score)
+            if label in metric_labels:
                 raise ValueError(
-                    f"Metric {index} for task '{task}' must be an object with exactly "
-                    f"keys {sorted(_INSPECT_SCORE_KEYS)}"
+                    f"Metric {index} for task '{task}' duplicates the output label "
+                    f"of metric {metric_labels[label]}: {label!r}"
                 )
-            if not isinstance(metric["name"], str):
-                raise ValueError(
-                    f"Metric {index} for task '{task}' must have a string name"
-                )
-            boolean_keys = _INSPECT_SCORE_KEYS - {"name"}
-            invalid_boolean_keys = [
-                key for key in boolean_keys if type(metric[key]) is not bool
-            ]
-            if invalid_boolean_keys:
-                raise ValueError(
-                    f"Metric {index} for task '{task}' must use JSON booleans for "
-                    f"{sorted(invalid_boolean_keys)}"
-                )
-            scores.append(
-                InspectScore(
-                    name=metric["name"],
-                    is_percentage=metric["is_percentage"],
-                    is_higher_better=metric["is_higher_better"],
-                    is_normalized=metric["is_normalized"],
-                )
-            )
+            metric_labels[label] = index
+            scores.append(score)
         result[task] = scores
 
     return result

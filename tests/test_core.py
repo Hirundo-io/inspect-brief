@@ -105,6 +105,17 @@ def test_load_logs_combines_explicit_files_and_directory(
     assert loaded == [str(explicit), str(discovered)]
 
 
+def test_load_logs_deduplicates_equivalent_paths(monkeypatch, tmp_path: Path) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+    monkeypatch.chdir(tmp_path)
+
+    assert load_logs(str(tmp_path), "run.eval", False) == [str(log_path)]
+    assert loaded == [str(log_path)]
+
+
 def test_empty_target_metric_selection_exports_no_rows() -> None:
     assert prepare_log_results(evaluation_log("task-a", "run-a", 1.0), []) == []
 

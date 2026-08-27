@@ -88,7 +88,9 @@ def load_logs(
     paths = list(log_files or [])
     if log_dir:
         paths.extend(str(path) for path in Path(log_dir).rglob("*.eval"))
-    log_files = list(dict.fromkeys(paths))
+    # Resolve before deduplicating so equivalent relative paths, absolute paths, and
+    # symlinked paths are only loaded once in a mixed file/directory invocation.
+    log_files = list(dict.fromkeys(str(Path(path).resolve()) for path in paths))
     logs: list[EvalLog] = []
     for log_file in log_files:
         try:
