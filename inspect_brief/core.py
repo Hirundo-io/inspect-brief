@@ -108,8 +108,8 @@ def load_logs(
                     )
                 except Exception:
                     logger.warning("❌ Could not export Inspect log %s", log_file)
-        except Exception:
-            logger.warning("❌ Could not load Inspect log %s", log_file)
+        except Exception as error:
+            logger.warning("❌ Could not load Inspect log %s: %s", log_file, error)
 
     return logs
 
@@ -461,7 +461,7 @@ def export_results(
         )
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
     if log_progress:
-        logger.info("⏭️ Skipping tasks with existing results: %s", set(task_ids_to_skip))
+        logger.info("⏭️ Skipping runs with existing Run IDs: %s", set(task_ids_to_skip))
     # Prepare the results for CSV export
     results = [
         format_output_row(row)

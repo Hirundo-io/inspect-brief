@@ -12,8 +12,19 @@ def test_parse_comma_separated() -> None:
 
 
 def test_parse_target_metrics_rejects_invalid_json() -> None:
-    with pytest.raises(ValueError, match="Must be a JSON object"):
+    with pytest.raises(ValueError, match="inline value 'not json' is not valid JSON"):
         parse_target_metrics("not json")
+
+
+def test_parse_target_metrics_identifies_invalid_json_file(tmp_path: Path) -> None:
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_text("not json", encoding="utf-8")
+
+    with pytest.raises(
+        ValueError,
+        match=r"INSPECT_BRIEF_TARGET_METRICS file '.+metrics\.json' is not valid JSON",
+    ):
+        parse_target_metrics(str(metrics_path), source="INSPECT_BRIEF_TARGET_METRICS")
 
 
 def test_parse_target_metrics_reads_json_file(tmp_path: Path) -> None:

@@ -35,7 +35,7 @@ def parse_target_metrics_option(
         typer.BadParameter: If the supplied target metrics are invalid.
     """
     try:
-        return parse_target_metrics(value)
+        return parse_target_metrics(value, source="--target-metrics")
     except ValueError as error:
         raise typer.BadParameter(str(error)) from error
 

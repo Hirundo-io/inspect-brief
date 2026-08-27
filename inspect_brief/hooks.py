@@ -62,17 +62,32 @@ class InspectBriefHooks(Hooks):
         """
         csv_path = os.environ[_CSV_PATH_ENV]
         try:
+            target_metrics = parse_target_metrics(
+                os.getenv(_TARGET_METRICS_ENV),
+                source=_TARGET_METRICS_ENV,
+            )
+        except ValueError as error:
+            logger.error(
+                "[inspect-brief] invalid configuration task=%s: %s",
+                data.log.eval.task,
+                error,
+            )
+            return
+
+        try:
             row_count = export_results(
                 logs=data.log,
                 tasks=parse_comma_separated(os.getenv(_TASKS_ENV)),
-                target_metrics=parse_target_metrics(os.getenv(_TARGET_METRICS_ENV)),
+                target_metrics=target_metrics,
                 csv_path=csv_path,
                 skip_existing=environment_flag(_SKIP_EXISTING_ENV),
                 log_progress=False,
             )
         except Exception:
             logger.exception(
-                "[inspect-brief] export failed task=%s", data.log.eval.task
+                "[inspect-brief] CSV export failed task=%s csv=%s",
+                data.log.eval.task,
+                csv_path,
             )
             return
 
@@ -101,7 +116,7 @@ class InspectBriefHooks(Hooks):
         )
         if task_count:
             logger.info(
-                "[inspect-brief] summary tasks=%s rows=%s csv=%s",
+                "[inspect-brief] summary tasks=%s rows=%s csv: %s",
                 task_count,
                 row_count,
                 csv_path,

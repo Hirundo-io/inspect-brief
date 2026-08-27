@@ -102,7 +102,9 @@ def test_hook_exports_task_and_logs_run_summary(monkeypatch, caplog) -> None:
     assert exported["csv_path"] == "results/brief.csv"
     assert exported["log_progress"] is False
     assert "[inspect-brief] exported rows=2 task=inspect_evals/hellaswag" in caplog.text
-    assert "[inspect-brief] summary tasks=1 rows=2 csv=results/brief.csv" in caplog.text
+    assert (
+        "[inspect-brief] summary tasks=1 rows=2 csv: results/brief.csv" in caplog.text
+    )
 
 
 def test_hook_parses_environment_configuration(monkeypatch) -> None:
@@ -152,7 +154,10 @@ def test_hook_logs_export_errors(monkeypatch, caplog) -> None:
 
     asyncio.run(hooks.InspectBriefHooks().on_task_end(task))
 
-    assert "[inspect-brief] export failed task=inspect_evals/hellaswag" in caplog.text
+    assert (
+        "[inspect-brief] CSV export failed task=inspect_evals/hellaswag "
+        "csv=results/brief.csv" in caplog.text
+    )
 
 
 def test_hook_logs_invalid_metric_configuration(monkeypatch, caplog) -> None:
@@ -172,4 +177,11 @@ def test_hook_logs_invalid_metric_configuration(monkeypatch, caplog) -> None:
     asyncio.run(hooks.InspectBriefHooks().on_task_end(task))
 
     assert not exporter_called
-    assert "[inspect-brief] export failed task=inspect_evals/hellaswag" in caplog.text
+    assert (
+        "[inspect-brief] invalid configuration task=inspect_evals/hellaswag"
+        in caplog.text
+    )
+    assert (
+        "INSPECT_BRIEF_TARGET_METRICS inline value 'not-json' is not valid JSON"
+        in caplog.text
+    )

@@ -50,12 +50,16 @@ def parse_comma_separated(value: str | None) -> list[str] | None:
     return [item for item in items if item] or None
 
 
-def parse_target_metrics(value: str | None) -> dict[str, list[InspectScore]] | None:
+def parse_target_metrics(
+    value: str | None,
+    source: str = "target metrics",
+) -> dict[str, list[InspectScore]] | None:
     """Parse target-metrics JSON supplied inline or via a file path.
 
     Args:
         value: A JSON object or a path to a JSON file mapping task names to
             InspectScore definitions.
+        source: A user-facing description of where the value came from.
 
     Returns:
         The target metrics by task, or None when no value is provided.
@@ -67,18 +71,27 @@ def parse_target_metrics(value: str | None) -> dict[str, list[InspectScore]] | N
         return None
 
     path = Path(value)
-    raw = path.read_text(encoding="utf-8") if path.is_file() else value
+    is_file = path.is_file()
+    try:
+        raw = path.read_text(encoding="utf-8") if is_file else value
+    except OSError as error:
+        raise ValueError(f"Could not read {source} file {value!r}: {error}") from error
+
+    input_description = f"file {value!r}" if is_file else f"inline value {value!r}"
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError as error:
         raise ValueError(
-            "Must be a JSON object (or path to one) mapping task name to "
-            "InspectScore objects with keys "
+            f"{source} {input_description} is not valid JSON. Expected a JSON "
+            "object mapping task names to InspectScore objects with keys "
             f"{sorted(_INSPECT_SCORE_KEYS)}"
         ) from error
 
     if not isinstance(parsed, dict):
-        raise ValueError("Must be a JSON object mapping task to a list of metrics")
+        raise ValueError(
+            f"{source} {input_description} must be a JSON object mapping task "
+            "names to lists of metrics"
+        )
 
     result: dict[str, list[InspectScore]] = {}
     for task, metrics in parsed.items():
