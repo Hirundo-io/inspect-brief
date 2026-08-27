@@ -14,7 +14,12 @@ from inspect_ai.log import (
 )
 
 from inspect_brief import core
-from inspect_brief.core import export_results, load_logs, prepare_log_results
+from inspect_brief.core import (
+    export_results,
+    load_logs,
+    prepare_log_results,
+    prepare_results,
+)
 
 
 def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
@@ -130,6 +135,28 @@ def test_load_logs_skips_unresolvable_paths_and_continues(
     assert loaded == [str(valid)]
 
 
+def test_load_logs_handles_directory_scan_errors(monkeypatch, tmp_path: Path) -> None:
+    explicit = tmp_path / "explicit.eval"
+    explicit.touch()
+    monkeypatch.setattr(
+        core.Path,
+        "rglob",
+        lambda *_: (_ for _ in ()).throw(OSError("scan unavailable")),
+    )
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+
+    assert load_logs(log_dir=str(tmp_path), log_files=str(explicit)) == [str(explicit)]
+
+    with pytest.raises(ValueError, match="directory scan") as error:
+        load_logs(
+            log_dir=str(tmp_path),
+            log_files=str(explicit),
+            fail_on_error=True,
+        )
+
+    assert isinstance(error.value.__cause__, OSError)
+
+
 def test_load_logs_exports_json_beside_symlink(monkeypatch, tmp_path: Path) -> None:
     target = tmp_path / "target.eval"
     target.touch()
@@ -168,6 +195,54 @@ def test_export_results_rejects_load_errors_before_writing(
         )
 
     assert not csv_path.exists()
+
+
+def test_prepare_results_preserves_positional_log_progress(monkeypatch) -> None:
+    log_progress_values: list[bool] = []
+    monkeypatch.setattr(
+        core,
+        "prepare_log_results",
+        lambda _, __, log_progress: log_progress_values.append(log_progress) or [],
+    )
+
+    prepare_results(
+        None,
+        None,
+        [evaluation_log("task-a", "run-a", 1.0)],
+        None,
+        None,
+        None,
+        False,
+        False,
+    )
+
+    assert log_progress_values == [False]
+
+
+def test_export_results_preserves_positional_log_progress(
+    monkeypatch, tmp_path: Path
+) -> None:
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        core,
+        "prepare_results",
+        lambda **kwargs: captured.update(kwargs) or [],
+    )
+
+    export_results(
+        None,
+        None,
+        [evaluation_log("task-a", "run-a", 1.0)],
+        None,
+        None,
+        str(tmp_path / "brief.csv"),
+        False,
+        False,
+        False,
+    )
+
+    assert captured["log_progress"] is False
+    assert captured["fail_on_log_error"] is False
 
 
 def test_empty_target_metric_selection_exports_no_rows() -> None:

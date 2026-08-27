@@ -40,6 +40,18 @@ OutputEntry = TypedDict(
 )
 
 
+def _discover_log_paths(
+    log_dir: str, load_errors: list[tuple[str, Exception]]
+) -> list[str]:
+    """Recursively discover evaluation-log paths while recording scan failures."""
+    try:
+        return [str(path) for path in Path(log_dir).rglob("*.eval")]
+    except OSError as error:
+        logger.warning("❌ Could not scan Inspect log directory %s: %s", log_dir, error)
+        load_errors.append((f"{log_dir} (directory scan)", error))
+        return []
+
+
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
     """
     Calculate runtime (in seconds) from ISO format timestamp strings.
@@ -88,10 +100,10 @@ def load_logs(
     if isinstance(log_files, str):
         log_files = [log_files]
     paths = list(log_files or [])
-    if log_dir:
-        paths.extend(str(path) for path in Path(log_dir).rglob("*.eval"))
-    logs: list[EvalLog] = []
     load_errors: list[tuple[str, Exception]] = []
+    if log_dir:
+        paths.extend(_discover_log_paths(log_dir, load_errors))
+    logs: list[EvalLog] = []
     resolved_paths: set[Path] = set()
     for log_file in paths:
         try:
@@ -296,8 +308,8 @@ def prepare_results(
     target_metrics: dict[str, list[InspectScore]] | None = None,
     task_ids_to_skip: list[str] | None = None,
     export_jsons: bool = False,
-    fail_on_log_error: bool = False,
     log_progress: bool = True,
+    fail_on_log_error: bool = False,
 ) -> list[OutputEntry]:
     """
     Prepare the results of the evaluation for CSV export.
@@ -310,8 +322,8 @@ def prepare_results(
         target_metrics (optional): The target metrics to include in the results by task.
         task_ids_to_skip (optional): The task IDs to skip in the results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
-        fail_on_log_error: Whether to reject the results when any log fails to load.
         log_progress: Whether to log progress while preparing results.
+        fail_on_log_error: Whether to reject the results when any log fails to load.
 
     Returns:
         The results of the evaluation for CSV export.
@@ -444,8 +456,8 @@ def export_results(
     csv_path: str | None = None,
     skip_existing: bool = False,
     export_jsons: bool = False,
-    fail_on_log_error: bool = False,
     log_progress: bool = True,
+    fail_on_log_error: bool = False,
 ) -> int:
     """
     Export the results of the evaluation to a CSV file.
@@ -461,8 +473,8 @@ def export_results(
             in the current working directory or the log_dir if provided.
         skip_existing (optional): Whether to skip tasks with existing results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
-        fail_on_log_error: Whether to reject the export when any log fails to load.
         log_progress: Whether to log detailed export progress.
+        fail_on_log_error: Whether to reject the export when any log fails to load.
     """
     # Prepare the output path
     if not csv_path:
