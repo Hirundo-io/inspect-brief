@@ -83,12 +83,12 @@ def load_logs(
     """
     if not log_dir and not log_files:
         raise ValueError("At least one of log_dir or log_files must be provided")
-    if not log_files:
-        if log_dir is None:
-            raise ValueError("log_dir is required when log_files is not provided")
-        log_files = [str(path) for path in Path(log_dir).rglob("*.eval")]
     if isinstance(log_files, str):
         log_files = [log_files]
+    paths = list(log_files or [])
+    if log_dir:
+        paths.extend(str(path) for path in Path(log_dir).rglob("*.eval"))
+    log_files = list(dict.fromkeys(paths))
     logs: list[EvalLog] = []
     for log_file in log_files:
         try:
@@ -209,6 +209,8 @@ def score_values(
     Returns:
         The selected scores, a failure status, or a no-scores status.
     """
+    if target_metrics == []:
+        return {}
     if log.status != "success":
         return failed_score_values(log.status, target_metrics)
     if not log.results or not log.results.scores:
@@ -367,11 +369,30 @@ def inspect_existing_results(
                 reader = csv.DictReader(f)
                 existing_fieldnames = list(reader.fieldnames or [])
                 existing_rows = list(reader)
+                if any(None in row for row in existing_rows):
+                    raise ValueError(
+                        "Existing CSV contains rows with more values than its header"
+                    )
             should_write_header = existing_fieldnames != fieldnames
 
         return fieldnames, existing_fieldnames, existing_rows, should_write_header
     except Exception as e:
         raise Exception(f"Failed to inspect existing results at {csv_path}: {e}") from e
+
+
+def sanitize_csv_value(value: object) -> object:
+    """Prevent spreadsheet applications from interpreting CSV cells as formulas.
+
+    Args:
+        value: The CSV cell value to sanitize.
+
+    Returns:
+        The original value, or a string prefixed with an apostrophe when it
+        begins with a spreadsheet formula marker.
+    """
+    if isinstance(value, str) and value.startswith(("=", "+", "-", "@")):
+        return f"'{value}"
+    return value
 
 
 def format_output_row(row: OutputEntry) -> dict[str, object]:
@@ -388,7 +409,7 @@ def format_output_row(row: OutputEntry) -> dict[str, object]:
     if isinstance(score, int | float):
         formatted_row["Score"] = f"{score:.2f}" if score > 1.0 else f"{score:.4f}"
 
-    return formatted_row
+    return {key: sanitize_csv_value(value) for key, value in formatted_row.items()}
 
 
 def export_results(
@@ -428,6 +449,10 @@ def export_results(
     fieldnames, existing_fieldnames, existing_rows, should_write_header = (
         inspect_existing_results(csv_path, log_progress=log_progress)
     )
+    if skip_existing and existing_rows and "Run ID" not in existing_fieldnames:
+        raise ValueError(
+            "Cannot skip existing results: the existing CSV has no 'Run ID' column"
+        )
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
     if log_progress:
         logger.info("⏭️ Skipping tasks with existing results: %s", set(task_ids_to_skip))
@@ -447,7 +472,7 @@ def export_results(
     ]
     try:
         # Rewrite an existing file if the header has changed
-        if should_write_header and existing_rows:
+        if should_write_header:
             # Get the ordered union of the new and existing fieldnames
             # (this is the most efficient way to do this)
             fieldnames = list(dict.fromkeys(fieldnames + existing_fieldnames))
@@ -455,7 +480,14 @@ def export_results(
                 writer = csv.DictWriter(f, fieldnames=fieldnames, restval="N/A")
                 writer.writeheader()
                 writer.writerows(
-                    {fieldname: row.get(fieldname, "N/A") for fieldname in fieldnames}
+                    {
+                        fieldname: sanitize_csv_value(
+                            row.get(fieldname, "N/A")
+                            if row.get(fieldname) is not None
+                            else "N/A"
+                        )
+                        for fieldname in fieldnames
+                    }
                     for row in existing_rows
                 )
             should_write_header = False

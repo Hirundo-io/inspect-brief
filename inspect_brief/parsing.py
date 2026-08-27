@@ -67,12 +67,25 @@ def parse_target_metrics(value: str | None) -> dict[str, list[InspectScore]] | N
                     f"Metric {index} for task '{task}' must be an object with exactly "
                     f"keys {sorted(_INSPECT_SCORE_KEYS)}"
                 )
+            if not isinstance(metric["name"], str):
+                raise ValueError(
+                    f"Metric {index} for task '{task}' must have a string name"
+                )
+            boolean_keys = _INSPECT_SCORE_KEYS - {"name"}
+            invalid_boolean_keys = [
+                key for key in boolean_keys if type(metric[key]) is not bool
+            ]
+            if invalid_boolean_keys:
+                raise ValueError(
+                    f"Metric {index} for task '{task}' must use JSON booleans for "
+                    f"{sorted(invalid_boolean_keys)}"
+                )
             scores.append(
                 InspectScore(
                     name=metric["name"],
-                    is_percentage=bool(metric["is_percentage"]),
-                    is_higher_better=bool(metric["is_higher_better"]),
-                    is_normalized=bool(metric["is_normalized"]),
+                    is_percentage=metric["is_percentage"],
+                    is_higher_better=metric["is_higher_better"],
+                    is_normalized=metric["is_normalized"],
                 )
             )
         result[task] = scores

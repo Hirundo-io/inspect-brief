@@ -27,7 +27,9 @@ inspect-brief [OPTIONS]
 python -m inspect_brief [OPTIONS]
 ```
 
-At least one of `--log-dir` or `--log-files` is required.
+At least one of `--log-dir` or `--log-files` is required. Use `--log-dir` to
+recursively discover logs, `--log-files` to select explicit logs, or both to
+combine them.
 
 ## Inspect Hook
 
@@ -49,13 +51,15 @@ directory; it is loaded when Inspect imports the hook:
 INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
 ```
 
-Optional hook configuration mirrors the CLI:
+Hook configuration:
 
-| Variable | Description |
-| --- | --- |
-| `INSPECT_BRIEF_TASKS` | Tasks to include (comma-separated) |
-| `INSPECT_BRIEF_TARGET_METRICS` | Target-metrics JSON object or path to a JSON file |
-| `INSPECT_BRIEF_SKIP_EXISTING` | Set to `1`, `true`, `yes`, or `on` to skip Run IDs already in the CSV |
+| Variable | Required | Description |
+| --- | --- | --- |
+| `INSPECT_BRIEF_CSV_PATH` | Yes | Output CSV path. The hook is disabled when it is unset. |
+| `INSPECT_BRIEF_ENABLED` | No | Set to `0`, `false`, `no`, or `off` to disable the hook. When unset, the hook is enabled if `INSPECT_BRIEF_CSV_PATH` is set. |
+| `INSPECT_BRIEF_TASKS` | No | Tasks to include (comma-separated). |
+| `INSPECT_BRIEF_TARGET_METRICS` | No | Target-metrics JSON object or path to a JSON file. |
+| `INSPECT_BRIEF_SKIP_EXISTING` | No | Set to `1`, `true`, `yes`, or `on` to skip Run IDs already in the CSV. |
 
 The `inspect-brief` CLI remains available for summarizing existing logs or
 regenerating a CSV.
@@ -64,8 +68,8 @@ regenerating a CSV.
 
 | Option | Description |
 | --- | --- |
-| `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files |
-| `--log-files` | One or more log paths (comma-separated) |
+| `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files and combines them with `--log-files` when both are supplied |
+| `--log-files` | One or more explicit log paths (comma-separated); combines them with logs found by `--log-dir` when both are supplied |
 | `--tasks` | Tasks to include (comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
 | `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |

@@ -1,5 +1,7 @@
+import csv
 from pathlib import Path
 
+import pytest
 from inspect_ai.log import (
     EvalConfig,
     EvalDataset,
@@ -11,7 +13,8 @@ from inspect_ai.log import (
     EvalStats,
 )
 
-from inspect_brief.core import export_results
+from inspect_brief import core
+from inspect_brief.core import export_results, load_logs, prepare_log_results
 
 
 def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
@@ -82,3 +85,64 @@ def test_export_results_skips_existing_run_ids(tmp_path: Path) -> None:
     )
 
     assert len(csv_path.read_text(encoding="utf-8").splitlines()) == 2
+
+
+def test_load_logs_combines_explicit_files_and_directory(
+    monkeypatch, tmp_path: Path
+) -> None:
+    explicit = tmp_path / "explicit.eval"
+    discovered = tmp_path / "nested" / "discovered.eval"
+    discovered.parent.mkdir()
+    explicit.touch()
+    discovered.touch()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(str(tmp_path), [str(explicit)], False) == [
+        str(explicit),
+        str(discovered),
+    ]
+    assert loaded == [str(explicit), str(discovered)]
+
+
+def test_empty_target_metric_selection_exports_no_rows() -> None:
+    assert prepare_log_results(evaluation_log("task-a", "run-a", 1.0), []) == []
+
+
+def test_export_escapes_formula_cells_and_migrates_header_only_csv(
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "brief.csv"
+    csv_path.write_text("Legacy\n", encoding="utf-8")
+    log = evaluation_log("=task-a", "run-a", 1.0)
+
+    export_results(logs=[log], csv_path=str(csv_path), log_progress=False)
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert len(rows) == 1
+    assert rows[0]["Benchmark"] == "'=task-a"
+
+
+def test_skip_existing_rejects_legacy_rows_without_run_id(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+    csv_path.write_text("Legacy\nvalue\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="no 'Run ID' column"):
+        export_results(
+            logs=[evaluation_log("task-a", "run-a", 1.0)],
+            csv_path=str(csv_path),
+            skip_existing=True,
+            log_progress=False,
+        )
+
+
+def test_export_rejects_existing_rows_with_extra_cells(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+    csv_path.write_text("Created,Run ID\ncreated,run-a,unexpected\n", encoding="utf-8")
+
+    with pytest.raises(Exception, match="more values than its header"):
+        export_results(
+            logs=[evaluation_log("task-a", "run-a", 1.0)],
+            csv_path=str(csv_path),
+            log_progress=False,
+        )

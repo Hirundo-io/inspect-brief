@@ -55,7 +55,7 @@ def main(
         str | None,
         typer.Option(
             "--log-files",
-            help="Path or list of paths to the Inspect evaluation log file/s (comma-separated)",
+            help="Path or list of paths to the Inspect evaluation log files (comma-separated)",
         ),
     ] = None,
     tasks: Annotated[
