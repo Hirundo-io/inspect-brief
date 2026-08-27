@@ -3,7 +3,7 @@ from typing import Annotated
 
 import typer
 
-from inspect_brief.core import export_results
+from inspect_brief.core import InspectScore, export_results
 from inspect_brief.parsing import parse_comma_separated, parse_target_metrics
 
 app = typer.Typer(
@@ -22,7 +22,7 @@ def configure_logging() -> None:
 
 def parse_target_metrics_option(
     value: str | None,
-) -> dict[str, list] | None:
+) -> dict[str, list[InspectScore]] | None:
     """Convert shared target-metrics validation errors into CLI parameter errors.
 
     Args:
@@ -109,6 +109,7 @@ def main(
         target_metrics=parse_target_metrics_option(target_metrics),
         csv_path=csv_path,
         skip_existing=skip_existing,
+        fail_on_log_error=True,
     )
 
 

@@ -69,6 +69,7 @@ def load_logs(
     log_dir: str | None = None,
     log_files: str | list[str] | None = None,
     export_jsons: bool = False,
+    fail_on_error: bool = False,
 ) -> list[EvalLog]:
     """
     Load the Inspect evaluation logs from the directory or files.
@@ -77,6 +78,7 @@ def load_logs(
         log_dir (optional): Path to the directory containing the Inspect logs.
         log_files (optional): Path or list of paths to the Inspect evaluation log file/s.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        fail_on_error: Whether to raise after processing all paths if any log fails to load.
 
     Returns:
         The list of Inspect evaluation logs.
@@ -89,6 +91,7 @@ def load_logs(
     if log_dir:
         paths.extend(str(path) for path in Path(log_dir).rglob("*.eval"))
     logs: list[EvalLog] = []
+    load_errors: list[tuple[str, Exception]] = []
     resolved_paths: set[Path] = set()
     for log_file in paths:
         try:
@@ -110,6 +113,13 @@ def load_logs(
                     logger.warning("❌ Could not export Inspect log %s", log_file)
         except Exception as error:
             logger.warning("❌ Could not load Inspect log %s: %s", log_file, error)
+            load_errors.append((log_file, error))
+
+    if load_errors and fail_on_error:
+        failed_paths = ", ".join(path for path, _ in load_errors)
+        raise ValueError(
+            f"Could not load {len(load_errors)} Inspect log(s): {failed_paths}"
+        ) from load_errors[0][1]
 
     return logs
 
@@ -286,6 +296,7 @@ def prepare_results(
     target_metrics: dict[str, list[InspectScore]] | None = None,
     task_ids_to_skip: list[str] | None = None,
     export_jsons: bool = False,
+    fail_on_log_error: bool = False,
     log_progress: bool = True,
 ) -> list[OutputEntry]:
     """
@@ -299,6 +310,7 @@ def prepare_results(
         target_metrics (optional): The target metrics to include in the results by task.
         task_ids_to_skip (optional): The task IDs to skip in the results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        fail_on_log_error: Whether to reject the results when any log fails to load.
         log_progress: Whether to log progress while preparing results.
 
     Returns:
@@ -308,7 +320,12 @@ def prepare_results(
         raise ValueError("At least one of log_dir, log_files, or logs must be provided")
     # Prepare the raw Inspect evaluation logs
     if not logs:
-        logs = load_logs(log_dir, log_files, export_jsons)
+        logs = load_logs(
+            log_dir,
+            log_files,
+            export_jsons,
+            fail_on_error=fail_on_log_error,
+        )
     if isinstance(logs, EvalLog):
         logs = [logs]
     # Filter the logs by tasks and/or already-exported run IDs
@@ -427,6 +444,7 @@ def export_results(
     csv_path: str | None = None,
     skip_existing: bool = False,
     export_jsons: bool = False,
+    fail_on_log_error: bool = False,
     log_progress: bool = True,
 ) -> int:
     """
@@ -443,6 +461,7 @@ def export_results(
             in the current working directory or the log_dir if provided.
         skip_existing (optional): Whether to skip tasks with existing results.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        fail_on_log_error: Whether to reject the export when any log fails to load.
         log_progress: Whether to log detailed export progress.
     """
     # Prepare the output path
@@ -473,6 +492,7 @@ def export_results(
             target_metrics=target_metrics,
             task_ids_to_skip=task_ids_to_skip,
             export_jsons=export_jsons,
+            fail_on_log_error=fail_on_log_error,
             log_progress=log_progress,
         )
     ]

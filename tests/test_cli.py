@@ -48,4 +48,5 @@ def test_cli_parses_options_and_exports_results(monkeypatch) -> None:
         },
         "csv_path": "results/brief.csv",
         "skip_existing": True,
+        "fail_on_log_error": True,
     }

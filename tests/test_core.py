@@ -148,6 +148,28 @@ def test_load_logs_exports_json_beside_symlink(monkeypatch, tmp_path: Path) -> N
     assert exported == [symlink.with_suffix(".json")]
 
 
+def test_export_results_rejects_load_errors_before_writing(
+    monkeypatch, tmp_path: Path
+) -> None:
+    log_path = tmp_path / "unreadable.eval"
+    csv_path = tmp_path / "brief.csv"
+    monkeypatch.setattr(
+        core,
+        "read_eval_log",
+        lambda path: (_ for _ in ()).throw(OSError("invalid log")),
+    )
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log"):
+        export_results(
+            log_files=str(log_path),
+            csv_path=str(csv_path),
+            fail_on_log_error=True,
+            log_progress=False,
+        )
+
+    assert not csv_path.exists()
+
+
 def test_empty_target_metric_selection_exports_no_rows() -> None:
     assert prepare_log_results(evaluation_log("task-a", "run-a", 1.0), []) == []
 
