@@ -490,6 +490,10 @@ def export_results(
         raise ValueError(
             "Cannot skip existing results: the existing CSV has no 'Run ID' column"
         )
+    if skip_existing and any(not row.get("Run ID") for row in existing_rows):
+        raise ValueError(
+            "Cannot skip existing results: an existing CSV row has no Run ID"
+        )
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
     if log_progress:
         logger.info("⏭️ Skipping runs with existing Run IDs: %s", set(task_ids_to_skip))

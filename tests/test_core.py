@@ -276,6 +276,19 @@ def test_skip_existing_rejects_legacy_rows_without_run_id(tmp_path: Path) -> Non
         )
 
 
+def test_skip_existing_rejects_rows_with_missing_run_id(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+    csv_path.write_text("Created,Run ID\ncreated\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="row has no Run ID"):
+        export_results(
+            logs=[evaluation_log("task-a", "run-a", 1.0)],
+            csv_path=str(csv_path),
+            skip_existing=True,
+            log_progress=False,
+        )
+
+
 def test_export_rejects_existing_rows_with_extra_cells(tmp_path: Path) -> None:
     csv_path = tmp_path / "brief.csv"
     csv_path.write_text("Created,Run ID\ncreated,run-a,unexpected\n", encoding="utf-8")
