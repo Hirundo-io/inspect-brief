@@ -41,7 +41,7 @@ class InspectBriefHooks(Hooks):
     """Append configured metric summaries when an Inspect task completes."""
 
     def __init__(self) -> None:
-        self._run_summaries: dict[str, tuple[int, int, str]] = {}
+        self._run_summaries: dict[str, tuple[int, int, int, str]] = {}
 
     def enabled(self) -> bool:
         """Return whether the hook has enough configuration to run.
@@ -91,11 +91,12 @@ class InspectBriefHooks(Hooks):
             )
             return
 
-        task_count, result_count, _ = self._run_summaries.get(
-            data.run_id, (0, 0, csv_path)
+        task_count, failed_task_count, result_count, _ = self._run_summaries.get(
+            data.run_id, (0, 0, 0, csv_path)
         )
         self._run_summaries[data.run_id] = (
             task_count + 1,
+            failed_task_count + (data.log.status != "success"),
             result_count + row_count,
             csv_path,
         )
@@ -111,13 +112,14 @@ class InspectBriefHooks(Hooks):
         Args:
             data: The completed Inspect run event.
         """
-        task_count, row_count, csv_path = self._run_summaries.pop(
-            data.run_id, (0, 0, "N/A")
+        task_count, failed_task_count, row_count, csv_path = self._run_summaries.pop(
+            data.run_id, (0, 0, 0, "N/A")
         )
         if task_count:
             logger.info(
-                "[inspect-brief] summary tasks=%s rows=%s csv: %s",
+                "[inspect-brief] summary tasks=%s failed=%s rows=%s csv: %s",
                 task_count,
+                failed_task_count,
                 row_count,
                 csv_path,
             )

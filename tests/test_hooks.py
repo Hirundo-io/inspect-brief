@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Literal
 
 import pytest
 from inspect_ai._eval.eval import EvalLogs
@@ -21,14 +22,17 @@ def clear_hook_environment(monkeypatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
-def task_end(task: str) -> TaskEnd:
+def task_end(
+    task: str,
+    status: Literal["started", "success", "cancelled", "error"] = "success",
+) -> TaskEnd:
     """Create a representative completed Inspect task event."""
     return TaskEnd(
         eval_set_id=None,
         run_id="run-1",
         eval_id="eval-1",
         log=EvalLog(
-            status="success",
+            status=status,
             eval=EvalSpec(
                 task=task,
                 task_id="task-1",
@@ -103,7 +107,25 @@ def test_hook_exports_task_and_logs_run_summary(monkeypatch, caplog) -> None:
     assert exported["log_progress"] is False
     assert "[inspect-brief] exported rows=2 task=inspect_evals/hellaswag" in caplog.text
     assert (
-        "[inspect-brief] summary tasks=1 rows=2 csv: results/brief.csv" in caplog.text
+        "[inspect-brief] summary tasks=1 failed=0 rows=2 csv: results/brief.csv"
+        in caplog.text
+    )
+
+
+def test_hook_includes_failed_tasks_in_run_summary(monkeypatch, caplog) -> None:
+    clear_hook_environment(monkeypatch)
+    caplog.set_level(logging.INFO, logger=hooks.__name__)
+    monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
+    monkeypatch.setattr(hooks, "export_results", lambda **kwargs: 1)
+    hook = hooks.InspectBriefHooks()
+
+    asyncio.run(hook.on_task_end(task_end("successful-task")))
+    asyncio.run(hook.on_task_end(task_end("failed-task", status="error")))
+    asyncio.run(hook.on_run_end(run_end()))
+
+    assert (
+        "[inspect-brief] summary tasks=2 failed=1 rows=2 csv: results/brief.csv"
+        in caplog.text
     )
 
 
