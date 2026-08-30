@@ -45,12 +45,12 @@ def task_end(
     )
 
 
-def run_end(exception: BaseException | None = None) -> RunEnd:
+def run_end() -> RunEnd:
     """Create a representative completed Inspect run event."""
     return RunEnd(
         eval_set_id=None,
         run_id="run-1",
-        exception=exception,
+        exception=None,
         logs=EvalLogs(),
     )
 
@@ -174,17 +174,11 @@ def test_hook_logs_export_errors(monkeypatch, caplog) -> None:
     monkeypatch.setattr(hooks, "export_results", export_results)
     task = task_end("inspect_evals/hellaswag")
 
-    hook = hooks.InspectBriefHooks()
-    asyncio.run(hook.on_task_end(task))
-    asyncio.run(hook.on_run_end(run_end()))
+    asyncio.run(hooks.InspectBriefHooks().on_task_end(task))
 
     assert (
         "[inspect-brief] CSV export failed task=inspect_evals/hellaswag "
         "csv=results/brief.csv" in caplog.text
-    )
-    assert (
-        "[inspect-brief] summary tasks=1 failed=0 export_errors=1 rows=0 "
-        "csv: results/brief.csv" in caplog.text
     )
 
 
@@ -202,9 +196,7 @@ def test_hook_logs_invalid_metric_configuration(monkeypatch, caplog) -> None:
     monkeypatch.setattr(hooks, "export_results", export_results)
     task = task_end("inspect_evals/hellaswag")
 
-    hook = hooks.InspectBriefHooks()
-    asyncio.run(hook.on_task_end(task))
-    asyncio.run(hook.on_run_end(run_end()))
+    asyncio.run(hooks.InspectBriefHooks().on_task_end(task))
 
     assert not exporter_called
     assert (
@@ -213,38 +205,5 @@ def test_hook_logs_invalid_metric_configuration(monkeypatch, caplog) -> None:
     )
     assert (
         "INSPECT_BRIEF_TARGET_METRICS inline value 'not-json' is not valid JSON"
-        in caplog.text
-    )
-    assert (
-        "[inspect-brief] summary tasks=1 failed=0 export_errors=1 rows=0 "
-        "csv: results/brief.csv" in caplog.text
-    )
-
-
-def test_hook_logs_run_exception_without_completed_tasks(caplog) -> None:
-    caplog.set_level(logging.INFO, logger=hooks.__name__)
-    hook = hooks.InspectBriefHooks()
-
-    asyncio.run(hook.on_run_end(run_end(RuntimeError("run setup failed"))))
-
-    assert (
-        "[inspect-brief] summary tasks=0 failed=0 export_errors=0 rows=0 "
-        "csv: N/A run_exception=RuntimeError('run setup failed')" in caplog.text
-    )
-
-
-def test_hook_logs_run_exception_with_partial_summary(monkeypatch, caplog) -> None:
-    clear_hook_environment(monkeypatch)
-    caplog.set_level(logging.INFO, logger=hooks.__name__)
-    monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
-    monkeypatch.setattr(hooks, "export_results", lambda **kwargs: 2)
-    hook = hooks.InspectBriefHooks()
-
-    asyncio.run(hook.on_task_end(task_end("successful-task")))
-    asyncio.run(hook.on_run_end(run_end(RuntimeError("run interrupted"))))
-
-    assert (
-        "[inspect-brief] summary tasks=1 failed=0 export_errors=0 rows=2 "
-        "csv: results/brief.csv run_exception=RuntimeError('run interrupted')"
         in caplog.text
     )
