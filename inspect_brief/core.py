@@ -66,6 +66,24 @@ def _discover_log_paths(
         return []
 
 
+def _resolve_eval_log_path(log_file: str) -> Path:
+    """Validate and resolve a local Inspect evaluation-log path.
+
+    Args:
+        log_file: Path supplied to the log loader.
+
+    Returns:
+        The canonical path to the `.eval` log.
+
+    Raises:
+        ValueError: If the supplied path is not an `.eval` file.
+    """
+    path = Path(log_file)
+    if path.suffix != ".eval":
+        raise ValueError("Inspect Brief currently supports only .eval log files")
+    return path.resolve(strict=True)
+
+
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
     """Calculate runtime (in seconds) from ISO format timestamp strings.
 
@@ -127,7 +145,7 @@ def load_logs(
         try:
             # Use canonical paths only as deduplication keys. Keeping the input path
             # preserves its location for optional JSON sidecar exports.
-            resolved_path = Path(log_file).resolve(strict=True)
+            resolved_path = _resolve_eval_log_path(log_file)
             if resolved_path in resolved_paths:
                 continue
             resolved_paths.add(resolved_path)

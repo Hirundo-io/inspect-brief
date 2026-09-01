@@ -147,6 +147,30 @@ def test_load_logs_skips_unresolvable_paths_and_continues(
     assert loaded == [str(valid)]
 
 
+def test_load_logs_rejects_non_eval_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    unsupported = tmp_path / "run.json"
+    supported = tmp_path / "run.eval"
+    unsupported.touch()
+    supported.touch()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_files=[str(unsupported), str(supported)]) == [str(supported)]
+    assert loaded == [str(supported)]
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log") as error:
+        load_logs(log_files=str(unsupported), fail_on_error=True)
+
+    assert isinstance(error.value.__cause__, ValueError)
+    assert (
+        str(error.value.__cause__)
+        == "Inspect Brief currently supports only .eval log files"
+    )
+
+
 def test_load_logs_handles_directory_scan_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
