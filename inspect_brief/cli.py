@@ -7,7 +7,11 @@ from typing import Annotated
 import typer
 
 from inspect_brief.core import InspectScore, export_results
-from inspect_brief.parsing import parse_comma_separated, parse_target_metrics
+from inspect_brief.parsing import (
+    parse_comma_separated,
+    parse_log_files,
+    parse_target_metrics,
+)
 
 app = typer.Typer(
     help=(
@@ -46,6 +50,27 @@ def parse_target_metrics_option(
         raise typer.BadParameter(str(error)) from error
 
 
+def parse_log_files_option(values: list[str] | None) -> list[str] | None:
+    """Convert shared log-file validation errors into CLI parameter errors.
+
+    Args:
+        values: Raw option values, each of which may contain comma-separated paths.
+
+    Returns:
+        Resolved log-file paths, or None when no paths are supplied.
+
+    Raises:
+        typer.BadParameter: If a path does not identify a readable file.
+    """
+    try:
+        return parse_log_files(values)
+    except ValueError as error:
+        raise typer.BadParameter(
+            str(error),
+            param_hint="--log-files",
+        ) from error
+
+
 @app.command(
     context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
     help="Prepare the results of the evaluation for CSV export.",
@@ -63,16 +88,14 @@ def main(
             resolve_path=True,
         ),
     ] = None,
-    # This remains a string because the option accepts a comma-separated collection;
-    # a Typer Path would validate the complete value as one file path.
     log_files: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
             "--log-files",
             metavar="PATH[,PATH...]",
             help=(
-                "Path or comma-separated list of paths to the Inspect evaluation "
-                "log files"
+                "Paths to Inspect evaluation log files; repeat the option or "
+                "separate paths with commas"
             ),
         ),
     ] = None,
@@ -131,7 +154,7 @@ def main(
     try:
         export_results(
             log_dir=str(log_dir) if log_dir else None,
-            log_files=parse_comma_separated(log_files),
+            log_files=parse_log_files_option(log_files),
             tasks=parse_comma_separated(tasks),
             target_metrics=parse_target_metrics_option(target_metrics),
             csv_path=str(csv_path) if csv_path else None,

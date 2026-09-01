@@ -1,6 +1,8 @@
 """Shared parsing for CLI options and Inspect Hook configuration."""
 
 import json
+import os
+from collections.abc import Iterable
 from pathlib import Path
 from typing import get_type_hints
 
@@ -48,11 +50,13 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
     )
 
 
-def parse_comma_separated(value: str | None) -> list[str] | None:
-    """Parse a comma-separated string into non-empty, stripped items.
+def parse_comma_separated(
+    value: str | Iterable[str] | None,
+) -> list[str] | None:
+    """Parse comma-separated values into non-empty, stripped items.
 
     Args:
-        value: The comma-separated value to parse.
+        value: One or more comma-separated values to parse.
 
     Returns:
         The parsed items, or None when no non-empty items are provided.
@@ -60,8 +64,38 @@ def parse_comma_separated(value: str | None) -> list[str] | None:
     """
     if value is None:
         return None
-    items = [item.strip() for item in value.split(",")]
+    values = [value] if isinstance(value, str) else value
+    items = [item.strip() for entry in values for item in entry.split(",")]
     return [item for item in items if item] or None
+
+
+def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
+    """Normalize repeatable log-file values and validate each path.
+
+    Args:
+        values: Raw values, each of which may contain comma-separated paths.
+
+    Returns:
+        Resolved log-file paths, or None when no paths are supplied.
+
+    Raises:
+        ValueError: If a path does not identify a readable file.
+    """
+    log_files = parse_comma_separated(values)
+    if log_files is None:
+        return None
+
+    resolved_log_files: list[str] = []
+    for value in log_files:
+        path = Path(value)
+        if not path.exists():
+            raise ValueError(f"File {value!r} does not exist.")
+        if not path.is_file():
+            raise ValueError(f"Path {value!r} is not a file.")
+        if not os.access(path, os.R_OK):
+            raise ValueError(f"File {value!r} is not readable.")
+        resolved_log_files.append(str(path.resolve()))
+    return resolved_log_files
 
 
 def parse_target_metrics(

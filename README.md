@@ -106,7 +106,8 @@ need to process existing logs again.
 At least one of `--log-dir` or `--log-files` is required:
 
 - `--log-dir` recursively discovers `.eval` logs under a directory.
-- `--log-files` accepts one or more explicit `.eval` paths, separated by commas.
+- `--log-files` accepts one or more explicit `.eval` paths. Repeat the option,
+  separate paths with commas, or combine both forms.
 - Supplying both combines the discovered and explicit logs and removes duplicates.
 
 JSON-formatted Inspect logs are not supported by either CLI input option.
@@ -124,7 +125,7 @@ inspect-brief [OPTIONS]
 | Option | Description |
 | --- | --- |
 | `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files and combines them with `--log-files` when both are supplied |
-| `--log-files` | One or more explicit `.eval` paths (comma-separated); combines them with logs found by `--log-dir` when both are supplied |
+| `--log-files` | One or more explicit `.eval` paths (repeatable or comma-separated); combines them with logs found by `--log-dir` when both are supplied |
 | `--tasks` | Tasks to include (comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
 | `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |
@@ -142,7 +143,8 @@ Summarize specific files and write to a chosen CSV:
 
 ```bash
 inspect-brief \
-  --log-files /path/to/a.eval,/path/to/b.eval \
+  --log-files /path/to/a.eval \
+  --log-files /path/to/b.eval \
   --csv-path results.csv
 ```
 

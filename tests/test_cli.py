@@ -13,6 +13,10 @@ def test_cli_parses_options_and_exports_results(
     exported: dict[str, object] = {}
     log_dir = tmp_path / "logs"
     log_dir.mkdir()
+    first_log = tmp_path / "first.eval"
+    second_log = tmp_path / "second.eval"
+    first_log.touch()
+    second_log.touch()
     csv_path = tmp_path / "results" / "brief.csv"
 
     def export_results(**kwargs: object) -> int:
@@ -28,7 +32,7 @@ def test_cli_parses_options_and_exports_results(
             "--log-dir",
             str(log_dir),
             "--log-files",
-            "first.eval, second.eval",
+            f"{first_log}, {second_log}",
             "--tasks",
             "task-a, task-b",
             "--target-metrics",
@@ -43,7 +47,7 @@ def test_cli_parses_options_and_exports_results(
     assert result.exit_code == 0
     assert exported == {
         "log_dir": str(log_dir),
-        "log_files": ["first.eval", "second.eval"],
+        "log_files": [str(first_log), str(second_log)],
         "tasks": ["task-a", "task-b"],
         "target_metrics": {
             "task-a": [
@@ -62,6 +66,62 @@ def test_cli_parses_options_and_exports_results(
 
 
 @pytest.mark.parametrize(
+    ("option_values", "expected_names"),
+    [
+        pytest.param(["first.eval"], ["first.eval"], id="single"),
+        pytest.param(
+            ["first.eval", "second.eval"],
+            ["first.eval", "second.eval"],
+            id="repeated",
+        ),
+        pytest.param(
+            ["first.eval,second.eval", "third.eval"],
+            ["first.eval", "second.eval", "third.eval"],
+            id="mixed",
+        ),
+    ],
+)
+def test_cli_accepts_repeatable_and_comma_separated_log_files(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    option_values: list[str],
+    expected_names: list[str],
+) -> None:
+    exported: dict[str, object] = {}
+    for name in expected_names:
+        (tmp_path / name).touch()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "export_results",
+        lambda **kwargs: exported.update(kwargs) or 0,
+    )
+    arguments = [item for value in option_values for item in ("--log-files", value)]
+
+    result = CliRunner().invoke(cli.app, arguments)
+
+    assert result.exit_code == 0
+    assert exported["log_files"] == [str(tmp_path / name) for name in expected_names]
+
+
+@pytest.mark.parametrize("path_kind", ["missing", "directory"])
+def test_cli_rejects_invalid_log_file_paths(
+    tmp_path: Path,
+    path_kind: str,
+) -> None:
+    log_path = tmp_path / path_kind
+    if path_kind == "directory":
+        log_path.mkdir()
+
+    result = CliRunner().invoke(cli.app, ["--log-files", str(log_path)])
+
+    assert result.exit_code == 2
+    assert "Invalid value for --log-files" in result.output
+
+
+@pytest.mark.parametrize(
     "error",
     [
         ValueError("missing Inspect log"),
@@ -71,8 +131,11 @@ def test_cli_parses_options_and_exports_results(
 )
 def test_cli_reports_operational_errors_without_tracebacks(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     error: Exception,
 ) -> None:
+    log_path = tmp_path / "input.eval"
+    log_path.touch()
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
     monkeypatch.setattr(
         cli,
@@ -80,7 +143,7 @@ def test_cli_reports_operational_errors_without_tracebacks(
         lambda **_: (_ for _ in ()).throw(error),
     )
 
-    result = CliRunner().invoke(cli.app, ["--log-files", "missing.eval"])
+    result = CliRunner().invoke(cli.app, ["--log-files", str(log_path)])
 
     assert result.exit_code == 1
     assert result.output == f"Error: {error}\n"

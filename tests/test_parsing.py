@@ -3,12 +3,33 @@ from pathlib import Path
 
 import pytest
 
-from inspect_brief.parsing import parse_comma_separated, parse_target_metrics
+from inspect_brief.parsing import (
+    parse_comma_separated,
+    parse_log_files,
+    parse_target_metrics,
+)
 
 
 def test_parse_comma_separated() -> None:
     assert parse_comma_separated(" first, ,second ") == ["first", "second"]
+    assert parse_comma_separated(["first, second", "third"]) == [
+        "first",
+        "second",
+        "third",
+    ]
     assert parse_comma_separated(None) is None
+
+
+def test_parse_log_files_normalizes_and_resolves_paths(tmp_path: Path) -> None:
+    first_log = tmp_path / "first.eval"
+    second_log = tmp_path / "second.eval"
+    first_log.touch()
+    second_log.touch()
+
+    assert parse_log_files([f"{first_log}, {second_log}"]) == [
+        str(first_log),
+        str(second_log),
+    ]
 
 
 def test_parse_target_metrics_rejects_invalid_json() -> None:
