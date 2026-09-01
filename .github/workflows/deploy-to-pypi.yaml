@@ -13,6 +13,7 @@ jobs:
     name: Build and verify distributions
     if: >-
       github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
       ((contains(github.event.pull_request.labels.*.name, 'release') &&
       !contains(github.event.pull_request.labels.*.name, 'test')) ||
       (contains(github.event.pull_request.labels.*.name, 'test') &&
@@ -20,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
+      artifact_digest: ${{ steps.distributions.outputs.artifact_digest }}
       package_version: ${{ steps.package.outputs.version }}
     permissions:
       contents: read
@@ -48,19 +50,37 @@ jobs:
           fi
           echo "version=$package_version" >> "$GITHUB_OUTPUT"
       - name: Build distributions
-        run: uv build
+        run: uv build --build-constraints requirements/build.txt --require-hashes
       - name: Test wheel installation and entry points
         run: |
           uv venv --python 3.12 /tmp/inspect-brief-release-venv
-          uv pip install --python /tmp/inspect-brief-release-venv/bin/python dist/*.whl
+          uv export \
+            --frozen \
+            --no-dev \
+            --no-emit-project \
+            --output-file /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-release-venv/bin/python \
+            --require-hashes \
+            --requirement /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-release-venv/bin/python \
+            --no-deps \
+            dist/*.whl
           /tmp/inspect-brief-release-venv/bin/python -c \
             'from importlib.metadata import entry_points; assert any(item.name == "inspect_brief" for item in entry_points(group="inspect_ai"))'
           /tmp/inspect-brief-release-venv/bin/inspect-brief --help
+      - name: Package verified distributions
+        id: distributions
+        run: |
+          tar -cf distributions.tar dist
+          artifact_digest="$(sha256sum distributions.tar | cut -d ' ' -f 1)"
+          echo "artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
       - name: Upload verified distributions
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: distributions
-          path: dist/
+          path: distributions.tar
           if-no-files-found: error
 
   publish:
@@ -87,8 +107,19 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: distributions
-          path: dist
+          path: artifact
+      - name: Verify downloaded distributions
+        env:
+          EXPECTED_DIGEST: ${{ needs.build_and_verify.outputs.artifact_digest }}
+        run: |
+          if [[ ! "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Missing or invalid distribution digest."
+            exit 1
+          fi
+          echo "$EXPECTED_DIGEST  artifact/distributions.tar" | sha256sum --check --strict
+          tar -xf artifact/distributions.tar
       - name: Tag verified release commit
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
         env:
           GIT_PUSH_TOKEN: ${{ github.token }}
           PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
