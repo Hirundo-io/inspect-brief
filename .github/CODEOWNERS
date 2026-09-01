@@ -2,5 +2,8 @@
 * @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-dev
 #  ⬆️ Allow Admins and Developers to approve PRs with changes to the repository
 .github/workflows/ @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-devops
+.github/CODEOWNERS @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-devops
+#  ⬆️ Allow Admins and DevOps to approve PRs with changes just to GitHub Actions
+#     workflows and to the ownership rules themselves
 uv.lock @Hirundo-io/hirundo-admins @Hirundo-io/hirundo-devops @Hirundo-io/hirundo-research
-#  ⬆️ Allow Admins and DevOps to approve PRs with changes just to GitHub Actions workflows; allow Researchers to approve uv.lock changes
+#  ⬆️ Allow Researchers to approve uv.lock changes

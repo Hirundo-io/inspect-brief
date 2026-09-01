@@ -1,0 +1,14 @@
+# Repository-level configuration for zizmor.
+# See: https://docs.zizmor.sh/configuration/
+rules:
+  artipacked:
+    ignore:
+      # Both workflows push to the repository over HTTPS using the credential
+      # that actions/checkout persists: create-release pushes the release branch
+      # and deploy-to-pypi pushes the release tag. Neither uploads artifacts, so
+      # the persisted credential is not exposed beyond the job.
+      # Owner: @Hirundo-io/hirundo-devops
+      # Remove when: tag and branch creation move to the GitHub API, at which
+      # point both checkouts can set persist-credentials: false.
+      - create-release.yaml
+      - deploy-to-pypi.yaml
