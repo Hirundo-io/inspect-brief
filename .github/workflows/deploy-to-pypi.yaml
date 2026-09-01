@@ -9,7 +9,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
+  build_and_verify:
+    name: Build and verify distributions
     if: >-
       github.event.pull_request.merged == true &&
       ((contains(github.event.pull_request.labels.*.name, 'release') &&
@@ -18,12 +19,10 @@ jobs:
       !contains(github.event.pull_request.labels.*.name, 'release')))
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment:
-      name: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'pypi' || 'testpypi' }}
-      url: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'https://pypi.org/p/inspect-brief' || 'https://test.pypi.org/p/inspect-brief' }}
+    outputs:
+      package_version: ${{ steps.package.outputs.version }}
     permissions:
-      contents: write
-      id-token: write
+      contents: read
       pull-requests: read
     steps:
       - name: Checkout merged release commit
@@ -31,12 +30,14 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.pull_request.merge_commit_sha }}
-          # Credentials are persisted deliberately: this job pushes the release tag.
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
-          # No cache: this job builds the published distributions.
           enable-cache: false
+          version: "0.12.8"
+      - name: Audit resolved dependencies
+        run: uv audit --frozen --preview-features audit-command
       - name: Read and validate package version
         id: package
         run: |
@@ -46,9 +47,51 @@ jobs:
             exit 1
           fi
           echo "version=$package_version" >> "$GITHUB_OUTPUT"
-      - name: Tag release
+      - name: Build distributions
+        run: uv build
+      - name: Test wheel installation and entry points
+        run: |
+          uv venv --python 3.12 /tmp/inspect-brief-release-venv
+          uv pip install --python /tmp/inspect-brief-release-venv/bin/python dist/*.whl
+          /tmp/inspect-brief-release-venv/bin/python -c \
+            'from importlib.metadata import entry_points; assert any(item.name == "inspect_brief" for item in entry_points(group="inspect_ai"))'
+          /tmp/inspect-brief-release-venv/bin/inspect-brief --help
+      - name: Upload verified distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    needs: build_and_verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configure both environments with required maintainers, prevent self-review,
+    # and restrict deployments to the default branch.
+    environment:
+      name: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'pypi' || 'testpypi' }}
+      url: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'https://pypi.org/p/inspect-brief' || 'https://test.pypi.org/p/inspect-brief' }}
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Checkout verified release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Download verified distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: distributions
+          path: dist
+      - name: Tag verified release commit
         env:
-          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+          GIT_PUSH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
         run: |
           git config user.name "GitHub Actions [release-bot]"
           git config user.email "github-actions@hirundo.io"
@@ -59,10 +102,11 @@ jobs:
             fi
           else
             git tag -a "v${PACKAGE_VERSION}" -m "Release v${PACKAGE_VERSION}"
+            git config --local credential.helper \
+              '!f() { echo "username=x-access-token"; echo "password=$GIT_PUSH_TOKEN"; }; f'
             git push origin "v${PACKAGE_VERSION}"
+            git config --local --unset-all credential.helper
           fi
-      - name: Build distributions
-        run: uv build
       - name: Publish package to TestPyPI
         if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2

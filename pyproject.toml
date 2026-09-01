@@ -28,7 +28,7 @@ keywords = [
   "report generation",
 ]
 requires-python = ">=3.12,<3.14"
-dependencies = ["inspect-ai", "python-dotenv", "typer"]
+dependencies = ["inspect-ai>=0.3.112", "python-dotenv", "typer"]
 
 [dependency-groups]
 dev = [

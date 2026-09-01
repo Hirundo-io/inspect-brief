@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from inspect_brief import cli
@@ -118,7 +119,8 @@ def test_cli_rejects_invalid_log_file_paths(
     result = CliRunner().invoke(cli.app, ["--log-files", str(log_path)])
 
     assert result.exit_code == 2
-    assert "Invalid value for --log-files" in result.output
+    normalized_output = " ".join(strip_ansi(result.output).split())
+    assert "Invalid value for --log-files" in normalized_output
 
 
 @pytest.mark.parametrize(

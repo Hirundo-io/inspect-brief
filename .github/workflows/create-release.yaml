@@ -14,35 +14,34 @@ on:
         default: true
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
-  create-release-pr:
+  prepare_release:
+    name: Prepare release
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      base_sha: ${{ steps.release.outputs.base_sha }}
+      branch: ${{ steps.release.outputs.branch }}
+      label: ${{ steps.release.outputs.label }}
+      version: ${{ steps.release.outputs.version }}
     steps:
-      - name: Checkout
+      - name: Checkout trusted default branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ github.ref }}
-          # Credentials are persisted deliberately: this job pushes the release
-          # branch. `RELEASE_TOKEN` is preferred because pushes and pull requests
-          # made with the default `GITHUB_TOKEN` do not start workflow runs, so a
-          # release PR opened with it shows no checks and cannot satisfy required
-          # status checks.
-          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
           python-version: "3.12"
-      - name: Validate version and create release PR
+      - name: Validate and prepare release files
+        id: release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
-          HAS_RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN != '' }}
-          PR_ASSIGNEE: ${{ github.event.sender.login || github.actor }}
           RELEASE_LABEL: ${{ inputs.test && 'test' || 'release' }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
@@ -51,24 +50,71 @@ jobs:
             exit 1
           fi
 
-          if [[ "$HAS_RELEASE_TOKEN" == "true" ]]; then
-            pr_note="CI runs automatically on this pull request."
-          else
-            pr_note="RELEASE_TOKEN is not configured, so this pull request was opened with the default GITHUB_TOKEN and no workflow runs were started. Dispatch the CI workflows manually against this branch before merging."
-            echo "::warning::RELEASE_TOKEN is not configured; CI will not start automatically on the release PR."
-          fi
-
           uv sync --locked --group dev
-          git config user.name "GitHub Actions [release-bot]"
-          git config user.email "github-actions@hirundo.io"
-          git switch -c "release-${RELEASE_VERSION}"
           uv run bumpver update --set-version "$RELEASE_VERSION"
           uv lock
+
+          echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "branch=release-${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "label=${RELEASE_LABEL}" >> "$GITHUB_OUTPUT"
+          echo "version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Upload prepared release files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: |
+            pyproject.toml
+            inspect_brief/__init__.py
+            uv.lock
+          if-no-files-found: error
+          retention-days: 1
+
+  create_release_pr:
+    name: Create release PR
+    needs: prepare_release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout trusted base commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ needs.prepare_release.outputs.base_sha }}
+          persist-credentials: false
+      - name: Download prepared release files
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: release-files
+      - name: Create release commit
+        env:
+          RELEASE_BRANCH: ${{ needs.prepare_release.outputs.branch }}
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.version }}
+        run: |
+          cp release-files/pyproject.toml pyproject.toml
+          cp release-files/inspect_brief/__init__.py inspect_brief/__init__.py
+          cp release-files/uv.lock uv.lock
+          git config user.name "GitHub Actions [release-bot]"
+          git config user.email "github-actions@hirundo.io"
+          git switch -c "$RELEASE_BRANCH"
           git add pyproject.toml inspect_brief/__init__.py uv.lock
           git commit -m "Bump version to ${RELEASE_VERSION}"
-          git push -u origin "release-${RELEASE_VERSION}"
+      - name: Push branch and open release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_ASSIGNEE: ${{ github.event.sender.login || github.actor }}
+          RELEASE_BRANCH: ${{ needs.prepare_release.outputs.branch }}
+          RELEASE_LABEL: ${{ needs.prepare_release.outputs.label }}
+          RELEASE_VERSION: ${{ needs.prepare_release.outputs.version }}
+        run: |
+          git config --local credential.helper \
+            '!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+          git push -u origin "$RELEASE_BRANCH"
+          git config --local --unset-all credential.helper
           gh pr create \
             --assignee "$PR_ASSIGNEE" \
             --title "v${RELEASE_VERSION}" \
-            --body "Automated release PR for version ${RELEASE_VERSION}. ${pr_note}" \
+            --body "Automated release PR for version ${RELEASE_VERSION}. A maintainer must approve the CI workflow runs before merging." \
             --label "$RELEASE_LABEL"

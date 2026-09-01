@@ -651,7 +651,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "inspect-ai" },
+    { name = "inspect-ai", specifier = ">=0.3.112" },
     { name = "python-dotenv" },
     { name = "typer" },
 ]
