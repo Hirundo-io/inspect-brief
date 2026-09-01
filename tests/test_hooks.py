@@ -10,7 +10,7 @@ from inspect_ai.log import EvalConfig, EvalDataset, EvalLog, EvalSpec
 from inspect_brief import hooks
 
 
-def clear_hook_environment(monkeypatch) -> None:
+def clear_hook_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear environment variables that configure the Inspect Brief hook."""
     for name in (
         "INSPECT_BRIEF_CSV_PATH",
@@ -55,13 +55,15 @@ def run_end() -> RunEnd:
     )
 
 
-def test_hook_is_disabled_without_csv_path(monkeypatch) -> None:
+def test_hook_is_disabled_without_csv_path(monkeypatch: pytest.MonkeyPatch) -> None:
     clear_hook_environment(monkeypatch)
 
     assert not hooks.InspectBriefHooks().enabled()
 
 
-def test_hook_is_disabled_when_explicitly_disabled(monkeypatch) -> None:
+def test_hook_is_disabled_when_explicitly_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "false")
@@ -70,7 +72,10 @@ def test_hook_is_disabled_when_explicitly_disabled(monkeypatch) -> None:
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "on"])
-def test_hook_is_enabled_by_supported_true_values(monkeypatch, value: str) -> None:
+def test_hook_is_enabled_by_supported_true_values(
+    monkeypatch: pytest.MonkeyPatch,
+    value: str,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", value)
@@ -78,20 +83,25 @@ def test_hook_is_enabled_by_supported_true_values(monkeypatch, value: str) -> No
     assert hooks.InspectBriefHooks().enabled()
 
 
-def test_hook_requires_csv_path_when_explicitly_enabled(monkeypatch) -> None:
+def test_hook_requires_csv_path_when_explicitly_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_ENABLED", "true")
 
     assert not hooks.InspectBriefHooks().enabled()
 
 
-def test_hook_exports_task_and_logs_run_summary(monkeypatch, caplog) -> None:
+def test_hook_exports_task_and_logs_run_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     clear_hook_environment(monkeypatch)
     caplog.set_level(logging.INFO, logger=hooks.__name__)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
     exported: dict[str, object] = {}
 
-    def export_results(**kwargs) -> int:
+    def export_results(**kwargs: object) -> int:
         exported.update(kwargs)
         return 2
 
@@ -112,7 +122,10 @@ def test_hook_exports_task_and_logs_run_summary(monkeypatch, caplog) -> None:
     )
 
 
-def test_hook_includes_failed_tasks_in_run_summary(monkeypatch, caplog) -> None:
+def test_hook_includes_failed_tasks_in_run_summary(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     clear_hook_environment(monkeypatch)
     caplog.set_level(logging.INFO, logger=hooks.__name__)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
@@ -129,7 +142,9 @@ def test_hook_includes_failed_tasks_in_run_summary(monkeypatch, caplog) -> None:
     )
 
 
-def test_hook_parses_environment_configuration(monkeypatch) -> None:
+def test_hook_parses_environment_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
     monkeypatch.setenv("INSPECT_BRIEF_TASKS", "task-a, task-b")
@@ -141,7 +156,7 @@ def test_hook_parses_environment_configuration(monkeypatch) -> None:
     )
     exported: dict[str, object] = {}
 
-    def export_results(**kwargs) -> int:
+    def export_results(**kwargs: object) -> int:
         exported.update(kwargs)
         return 1
 
@@ -164,11 +179,14 @@ def test_hook_parses_environment_configuration(monkeypatch) -> None:
     }
 
 
-def test_hook_logs_export_errors(monkeypatch, caplog) -> None:
+def test_hook_logs_export_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
 
-    def export_results(**kwargs) -> int:
+    def export_results(**kwargs: object) -> int:
         raise RuntimeError("cannot write CSV")
 
     monkeypatch.setattr(hooks, "export_results", export_results)
@@ -182,13 +200,16 @@ def test_hook_logs_export_errors(monkeypatch, caplog) -> None:
     )
 
 
-def test_hook_logs_invalid_metric_configuration(monkeypatch, caplog) -> None:
+def test_hook_logs_invalid_metric_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     clear_hook_environment(monkeypatch)
     monkeypatch.setenv("INSPECT_BRIEF_CSV_PATH", "results/brief.csv")
     monkeypatch.setenv("INSPECT_BRIEF_TARGET_METRICS", "not-json")
     exporter_called = False
 
-    def export_results(**kwargs) -> int:
+    def export_results(**kwargs: object) -> int:
         nonlocal exporter_called
         exporter_called = True
         return 0

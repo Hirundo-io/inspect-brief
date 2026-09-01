@@ -33,5 +33,5 @@ repos:
         args: [-q]
         language: system
         types: [python]
-        pass_filenames: true
+        pass_filenames: false
         stages: [pre-push]

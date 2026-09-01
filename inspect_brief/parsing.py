@@ -10,7 +10,20 @@ _INSPECT_SCORE_KEYS = set(get_type_hints(InspectScore))
 
 
 def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
-    """Validate and construct one configured metric."""
+    """Validate and construct one configured metric.
+
+    Args:
+        task: Task name that owns the metric configuration.
+        index: Position of the metric in the task configuration.
+        metric: Unvalidated metric value decoded from JSON.
+
+    Returns:
+        A validated Inspect score definition.
+
+    Raises:
+        ValueError: If the metric does not match the required schema.
+
+    """
     if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
         raise ValueError(
             f"Metric {index} for task '{task}' must be an object with exactly "
@@ -43,6 +56,7 @@ def parse_comma_separated(value: str | None) -> list[str] | None:
 
     Returns:
         The parsed items, or None when no non-empty items are provided.
+
     """
     if value is None:
         return None
@@ -66,6 +80,7 @@ def parse_target_metrics(
 
     Raises:
         ValueError: If the supplied JSON does not match the expected schema.
+
     """
     if value is None:
         return None

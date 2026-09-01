@@ -48,7 +48,7 @@ def test_parse_target_metrics_reads_json_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "metric, message",
+    ("metric", "message"),
     [
         (
             {
@@ -70,7 +70,10 @@ def test_parse_target_metrics_reads_json_file(tmp_path: Path) -> None:
         ),
     ],
 )
-def test_parse_target_metrics_rejects_invalid_field_types(metric, message: str) -> None:
+def test_parse_target_metrics_rejects_invalid_field_types(
+    metric: dict[str, object],
+    message: str,
+) -> None:
     with pytest.raises(ValueError, match=message):
         parse_target_metrics(json.dumps({"task-a": [metric]}))
 

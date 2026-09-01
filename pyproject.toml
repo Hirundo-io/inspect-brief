@@ -28,11 +28,7 @@ keywords = [
   "report generation",
 ]
 requires-python = ">=3.12,<3.14"
-dependencies = [
-  "inspect-ai",
-  "python-dotenv",
-  "typer",
-]
+dependencies = ["inspect-ai", "python-dotenv", "typer"]
 
 [dependency-groups]
 dev = [
@@ -43,9 +39,6 @@ dev = [
   "pyrefly>=0.63.1",
 ]
 docs = ["sphinx>=8.0.0"]
-
-[tool.uv.dependency-groups]
-docs = { requires-python = ">=3.12" }
 
 [tool.uv.sources]
 inspect-brief = { path = ".", editable = true }
@@ -70,27 +63,46 @@ Homepage = "https://github.com/Hirundo-io/inspect-brief"
 
 [tool.ruff.lint]
 select = [
-  "E4",
-  "E7",
-  "E9",
-  "F",
-  "W",
-  "C901",
-  "I",
-  "N",
-  "UP",
+  "missing-type-function-argument",
+  "missing-type-args",
+  "missing-type-kwargs",
+  "ASYNC",
   "S",
   "B",
   "A",
-  "TID",
-  "TC",
+  "COM",
+  "C4",
+  "DTZ",
+  "T10",
+  "LOG",
+  "T20",
+  "PT",
+  "SIM",
+  "PTH",
+  "I",
+  "C90",
+  "N",
+  "PERF",
+  "E",
+  "F",
+  "UP",
+  "FURB",
+  "RUF",
+  "BLE",
+  "D",
+  "DOC",
 ]
-ignore = ["N806"]
+preview = true
+ignore = ["missing-trailing-comma", "non-lowercase-variable-in-function"]
 
 fixable = ["ALL"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*.py" = ["S"]
+"docs/conf.py" = ["D", "DOC"]
+"tests/*.py" = ["D", "DOC", "S"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
 
 [tool.pyrefly]
 min-severity = "warn"

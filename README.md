@@ -82,6 +82,10 @@ and logs the number of rows exported. At the end of the Inspect run, it logs a
 summary containing the handled task count, failed task count, exported row count,
 and output path.
 
+CSV export is synchronous within an Inspect process. Inspect Brief does not use
+cross-process file locking, so each output CSV must have a single process writing
+to it. Do not point concurrent Inspect runs or CLI processes at the same CSV.
+
 ### Hook configuration
 
 | Variable | Required | Description |

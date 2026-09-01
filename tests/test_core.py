@@ -16,6 +16,7 @@ from inspect_ai.log import (
 from inspect_brief import core
 from inspect_brief.core import (
     export_results,
+    get_runtime_from_timestamps,
     load_logs,
     prepare_log_results,
     prepare_results,
@@ -49,6 +50,12 @@ def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
             started_at="2026-08-26T12:00:00+00:00",
             completed_at="2026-08-26T12:00:02+00:00",
         ),
+    )
+
+
+def test_runtime_accepts_utc_z_suffix() -> None:
+    assert (
+        get_runtime_from_timestamps("2026-08-26T12:00:00Z", "2026-08-26T12:00:02Z") == 2
     )
 
 
@@ -93,7 +100,8 @@ def test_export_results_skips_existing_run_ids(tmp_path: Path) -> None:
 
 
 def test_load_logs_combines_explicit_files_and_directory(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     explicit = tmp_path / "explicit.eval"
     discovered = tmp_path / "nested" / "discovered.eval"
@@ -110,7 +118,10 @@ def test_load_logs_combines_explicit_files_and_directory(
     assert loaded == [str(explicit), str(discovered)]
 
 
-def test_load_logs_deduplicates_equivalent_paths(monkeypatch, tmp_path: Path) -> None:
+def test_load_logs_deduplicates_equivalent_paths(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     log_path = tmp_path / "run.eval"
     log_path.touch()
     loaded: list[str] = []
@@ -122,7 +133,8 @@ def test_load_logs_deduplicates_equivalent_paths(monkeypatch, tmp_path: Path) ->
 
 
 def test_load_logs_skips_unresolvable_paths_and_continues(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     loop = tmp_path / "loop.eval"
     loop.symlink_to(loop)
@@ -135,7 +147,10 @@ def test_load_logs_skips_unresolvable_paths_and_continues(
     assert loaded == [str(valid)]
 
 
-def test_load_logs_handles_directory_scan_errors(monkeypatch, tmp_path: Path) -> None:
+def test_load_logs_handles_directory_scan_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     explicit = tmp_path / "explicit.eval"
     explicit.touch()
     monkeypatch.setattr(
@@ -157,7 +172,10 @@ def test_load_logs_handles_directory_scan_errors(monkeypatch, tmp_path: Path) ->
     assert isinstance(error.value.__cause__, OSError)
 
 
-def test_load_logs_exports_json_beside_symlink(monkeypatch, tmp_path: Path) -> None:
+def test_load_logs_exports_json_beside_symlink(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
     target = tmp_path / "target.eval"
     target.touch()
     symlink = tmp_path / "linked.eval"
@@ -176,7 +194,8 @@ def test_load_logs_exports_json_beside_symlink(monkeypatch, tmp_path: Path) -> N
 
 
 def test_export_results_rejects_load_errors_before_writing(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     log_path = tmp_path / "unreadable.eval"
     csv_path = tmp_path / "brief.csv"
@@ -197,7 +216,9 @@ def test_export_results_rejects_load_errors_before_writing(
     assert not csv_path.exists()
 
 
-def test_prepare_results_preserves_positional_log_progress(monkeypatch) -> None:
+def test_prepare_results_preserves_positional_log_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     log_progress_values: list[bool] = []
     monkeypatch.setattr(
         core,
@@ -220,7 +241,8 @@ def test_prepare_results_preserves_positional_log_progress(monkeypatch) -> None:
 
 
 def test_export_results_preserves_positional_log_progress(
-    monkeypatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured: dict[str, object] = {}
     monkeypatch.setattr(
@@ -293,9 +315,33 @@ def test_export_rejects_existing_rows_with_extra_cells(tmp_path: Path) -> None:
     csv_path = tmp_path / "brief.csv"
     csv_path.write_text("Created,Run ID\ncreated,run-a,unexpected\n", encoding="utf-8")
 
-    with pytest.raises(Exception, match="more values than its header"):
+    with pytest.raises(ValueError, match="more values than its header"):
         export_results(
             logs=[evaluation_log("task-a", "run-a", 1.0)],
             csv_path=str(csv_path),
             log_progress=False,
         )
+
+
+def test_header_migration_preserves_original_when_rewrite_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    csv_path = tmp_path / "brief.csv"
+    original = "Legacy\nvalue\n"
+    csv_path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(
+        core.os,
+        "replace",
+        lambda *_: (_ for _ in ()).throw(OSError("replace failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="replace failed"):
+        export_results(
+            logs=[evaluation_log("task-a", "run-a", 1.0)],
+            csv_path=str(csv_path),
+            log_progress=False,
+        )
+
+    assert csv_path.read_text(encoding="utf-8") == original
+    assert list(tmp_path.glob(".brief.csv.*.tmp")) == []

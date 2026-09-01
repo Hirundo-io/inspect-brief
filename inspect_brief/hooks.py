@@ -29,6 +29,7 @@ def environment_flag(name: str, default: bool = False) -> bool:
     Returns:
         True for ``1``, ``true``, ``yes``, or ``on``; otherwise False or the
         supplied default.
+
     """
     value = os.getenv(name)
     if value is None:
@@ -38,9 +39,16 @@ def environment_flag(name: str, default: bool = False) -> bool:
 
 @hooks(name="inspect_brief", description="Export Inspect evaluation metrics to CSV")
 class InspectBriefHooks(Hooks):
-    """Append configured metric summaries when an Inspect task completes."""
+    """Append configured metric summaries when an Inspect task completes.
+
+    CSV export is synchronous within a callback. Separate processes must not
+    write to the same output CSV concurrently because no cross-process lock is
+    used.
+
+    """
 
     def __init__(self) -> None:
+        """Initialize per-run export summary state."""
         self._run_summaries: dict[str, tuple[int, int, int, str]] = {}
 
     def enabled(self) -> bool:
@@ -48,6 +56,7 @@ class InspectBriefHooks(Hooks):
 
         Returns:
             True when a CSV path is configured and the hook is not disabled.
+
         """
         return environment_flag(
             _ENABLED_ENV,
@@ -59,6 +68,7 @@ class InspectBriefHooks(Hooks):
 
         Args:
             data: The completed Inspect task event.
+
         """
         csv_path = os.environ[_CSV_PATH_ENV]
         try:
@@ -111,6 +121,7 @@ class InspectBriefHooks(Hooks):
 
         Args:
             data: The completed Inspect run event.
+
         """
         task_count, failed_task_count, row_count, csv_path = self._run_summaries.pop(
             data.run_id, (0, 0, 0, "N/A")

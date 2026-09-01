@@ -1,24 +1,29 @@
+"""Load Inspect logs and export their metric summaries to CSV."""
+
 import csv
 import logging
 import os
+import stat
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict, get_type_hints
 
-from inspect_ai.log import EvalLog, read_eval_log, write_eval_log
+from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
 logger = logging.getLogger(__name__)
 
 
 class InspectScore(TypedDict):
-    """
-    Score definition for inspect-ai.
+    """Score definition for inspect-ai.
 
     Args:
         name: The name of the score metric in the inspect-ai logs.
         is_percentage: Whether the score is a percentage.
         is_higher_better: Whether a higher value is better.
-        is_normalized: Whether the score is normalized. Relevant only for percentage scores.
+        is_normalized: Whether the score is normalized. Relevant only for
+            percentage scores.
+
     """
 
     name: str
@@ -43,7 +48,16 @@ OutputEntry = TypedDict(
 def _discover_log_paths(
     log_dir: str, load_errors: list[tuple[str, Exception]]
 ) -> list[str]:
-    """Recursively discover evaluation-log paths while recording scan failures."""
+    """Recursively discover evaluation-log paths while recording scan failures.
+
+    Args:
+        log_dir: Directory to scan recursively for evaluation logs.
+        load_errors: Mutable collection that receives directory scan failures.
+
+    Returns:
+        Discovered `.eval` file paths, or an empty list when scanning fails.
+
+    """
     try:
         return [str(path) for path in Path(log_dir).rglob("*.eval")]
     except OSError as error:
@@ -53,8 +67,7 @@ def _discover_log_paths(
 
 
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
-    """
-    Calculate runtime (in seconds) from ISO format timestamp strings.
+    """Calculate runtime (in seconds) from ISO format timestamp strings.
 
     Args:
         started_at: The start timestamp.
@@ -63,17 +76,16 @@ def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str
     Returns:
         The runtime in seconds.
         "N/A" if the runtime cannot be calculated.
+
     """
     try:
-        # inspect_ai timestamps are usually ISO 8601 formatted strings
-        # replace Z with +00:00 to make it compatible with python's fromisoformat
-        start = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-        end = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        start = datetime.fromisoformat(started_at)
+        end = datetime.fromisoformat(completed_at)
         duration = end - start
         # Strip microseconds for cleaner display
         duration_seconds = int(duration.total_seconds())
         return duration_seconds
-    except Exception:
+    except (OverflowError, ValueError):
         return "N/A"
 
 
@@ -83,17 +95,23 @@ def load_logs(
     export_jsons: bool = False,
     fail_on_error: bool = False,
 ) -> list[EvalLog]:
-    """
-    Load the Inspect evaluation logs from the directory or files.
+    """Load the Inspect evaluation logs from the directory or files.
 
     Args:
         log_dir (optional): Path to the directory containing the Inspect logs.
-        log_files (optional): Path or list of paths to the Inspect evaluation log file/s.
+        log_files (optional): Path or list of paths to the Inspect evaluation
+            log files.
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
-        fail_on_error: Whether to raise after processing all paths if any log fails to load.
+        fail_on_error: Whether to raise after processing all paths if any log
+            fails to load.
 
     Returns:
         The list of Inspect evaluation logs.
+
+    Raises:
+        ValueError: If no input is provided, or if ``fail_on_error`` is true
+            and one or more logs cannot be loaded.
+
     """
     if not log_dir and not log_files:
         raise ValueError("At least one of log_dir or log_files must be provided")
@@ -109,7 +127,7 @@ def load_logs(
         try:
             # Use canonical paths only as deduplication keys. Keeping the input path
             # preserves its location for optional JSON sidecar exports.
-            resolved_path = Path(log_file).resolve()
+            resolved_path = Path(log_file).resolve(strict=True)
             if resolved_path in resolved_paths:
                 continue
             resolved_paths.add(resolved_path)
@@ -121,9 +139,11 @@ def load_logs(
                     write_eval_log(
                         log, Path(log_file).with_suffix(".json"), format="json"
                     )
-                except Exception:
+                except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
                     logger.warning("❌ Could not export Inspect log %s", log_file)
-        except Exception as error:
+        # Inspect log readers and storage backends may raise provider-specific
+        # exceptions. Isolate each path so one malformed log does not stop the rest.
+        except Exception as error:  # ruff: ignore[blind-except]
             logger.warning("❌ Could not load Inspect log %s: %s", log_file, error)
             load_errors.append((log_file, error))
 
@@ -144,6 +164,7 @@ def target_metric_name(target_metric: InspectScore) -> str:
 
     Returns:
         The metric name annotated with percentage and direction metadata.
+
     """
     metric_name = target_metric["name"]
     if target_metric["is_percentage"]:
@@ -158,11 +179,13 @@ def failed_score_values(
     """Create CSV score values for an evaluation that did not succeed.
 
     Args:
+        target_metrics (optional): Configured metrics to include in the output.
         status: The Inspect evaluation status.
         target_metrics: Optional configured metrics to include in the output.
 
     Returns:
         A status value or one failure value for each configured metric.
+
     """
     if not target_metrics:
         return {"status": f"Failed ({status})"}
@@ -173,7 +196,7 @@ def failed_score_values(
     }
 
 
-def all_score_values(scores) -> dict[str, float | str]:
+def all_score_values(scores: list[EvalScore]) -> dict[str, float | str]:
     """Extract every metric value from Inspect scorer results.
 
     Args:
@@ -182,6 +205,7 @@ def all_score_values(scores) -> dict[str, float | str]:
     Returns:
         Metric names mapped to their recorded values. Names include scorer
         prefixes when more than one scorer produced metrics.
+
     """
     add_scorer_prefix = len(scores) > 1
     score_values: dict[str, float | str] = {}
@@ -195,7 +219,7 @@ def all_score_values(scores) -> dict[str, float | str]:
 
 
 def target_score_values(
-    scores, target_metrics: list[InspectScore]
+    scores: list[EvalScore], target_metrics: list[InspectScore]
 ) -> dict[str, float | str]:
     """Extract configured metric values from Inspect scorer results.
 
@@ -206,6 +230,7 @@ def target_score_values(
     Returns:
         Configured metric names mapped to their values or missing-metric
         messages.
+
     """
     score_values: dict[str, float | str] = {}
     for target_metric in target_metrics:
@@ -214,9 +239,8 @@ def target_score_values(
             if target_metric["name"] not in score.metrics:
                 continue
             metric_value = score.metrics[target_metric["name"]].value
-            if target_metric["is_percentage"]:
-                if target_metric["is_normalized"]:
-                    metric_value *= 100.0
+            if target_metric["is_percentage"] and target_metric["is_normalized"]:
+                metric_value *= 100.0
             score_values[metric_name] = metric_value
             break
         else:
@@ -236,6 +260,7 @@ def score_values(
 
     Returns:
         The selected scores, a failure status, or a no-scores status.
+
     """
     if target_metrics == []:
         return {}
@@ -256,8 +281,7 @@ def prepare_log_results(
     target_metrics: list[InspectScore] | None = None,
     log_progress: bool = True,
 ) -> list[OutputEntry]:
-    """
-    Prepare the results of the Inspect evaluation for CSV export.
+    """Prepare the results of the Inspect evaluation for CSV export.
 
     Args:
         log: The Inspect evaluation log.
@@ -266,6 +290,7 @@ def prepare_log_results(
 
     Returns:
         The results of the Inspect evaluation for CSV export.
+
     """
     task_name = log.eval.task
     runtime = get_runtime_from_timestamps(
@@ -283,7 +308,7 @@ def prepare_log_results(
                 "Metric": score_name,
                 "Score": score_value,
                 "Runtime (sec)": runtime,
-            }
+            },
         )
         for score_name, score_value in score_values(log, target_metrics).items()
     ]
@@ -311,12 +336,12 @@ def prepare_results(
     log_progress: bool = True,
     fail_on_log_error: bool = False,
 ) -> list[OutputEntry]:
-    """
-    Prepare the results of the evaluation for CSV export.
+    """Prepare the results of the evaluation for CSV export.
 
     Args:
         log_dir (optional): Path to the directory containing the Inspect logs.
-        log_files (optional): Path or list of paths to the Inspect evaluation log file/s.
+        log_files (optional): Path or list of paths to the Inspect evaluation
+            log files.
         logs (optional): The Inspect evaluation log or list of logs.
         tasks (optional): The tasks to include in the results.
         target_metrics (optional): The target metrics to include in the results by task.
@@ -327,6 +352,11 @@ def prepare_results(
 
     Returns:
         The results of the evaluation for CSV export.
+
+    Raises:
+        ValueError: If no log source is provided or a requested log cannot be
+            loaded when strict log-error handling is enabled.
+
     """
     if not log_dir and not log_files and not logs:
         raise ValueError("At least one of log_dir, log_files, or logs must be provided")
@@ -338,7 +368,7 @@ def prepare_results(
             export_jsons,
             fail_on_error=fail_on_log_error,
         )
-    if isinstance(logs, EvalLog):
+    if not isinstance(logs, list):
         logs = [logs]
     # Filter the logs by tasks and/or already-exported run IDs
     if tasks:
@@ -346,7 +376,10 @@ def prepare_results(
         missing_tasks = set(tasks) - existing_tasks
         if missing_tasks:
             logger.warning(
-                f"Skipping tasks without Inspect logs: {missing_tasks}. Available tasks with logs: {existing_tasks}"
+                "Skipping tasks without Inspect logs: %s. Available tasks with "
+                "logs: %s",
+                missing_tasks,
+                existing_tasks,
             )
         logs = [log for log in logs if log.eval.task in tasks]
     if task_ids_to_skip:
@@ -371,7 +404,7 @@ def prepare_results(
                 log,
                 task_target_metrics,
                 log_progress=log_progress,
-            )
+            ),
         )
 
     return results
@@ -381,15 +414,19 @@ def inspect_existing_results(
     csv_path: str,
     log_progress: bool = True,
 ) -> tuple[list[str], list[str], list[dict[str, str]], bool]:
-    """
-    Inspect the existing results of the evaluation to determine if the header has changed.
+    """Inspect existing results and determine whether the header has changed.
 
     Args:
         csv_path: The path to the output CSV file.
         log_progress: Whether to log progress while inspecting results.
 
     Returns:
-        The fieldnames, existing fieldnames, existing rows, and whether to write the header.
+        The fieldnames, existing fieldnames, existing rows, and whether to
+        write the header.
+
+    Raises:
+        ValueError: If the existing CSV cannot be read or has invalid rows.
+
     """
     if log_progress:
         logger.info("🔍 Inspecting existing results at %s", csv_path)
@@ -399,8 +436,8 @@ def inspect_existing_results(
         existing_rows: list[dict[str, str]] = []
         should_write_header = True
         # Get existing rows and fieldnames if the file exists
-        if os.path.isfile(csv_path) and os.path.getsize(csv_path) > 0:
-            with open(csv_path, newline="", encoding="utf-8") as f:
+        if Path(csv_path).is_file() and Path(csv_path).stat().st_size > 0:
+            with Path(csv_path).open(newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
                 existing_fieldnames = list(reader.fieldnames or [])
                 existing_rows = list(reader)
@@ -411,8 +448,10 @@ def inspect_existing_results(
             should_write_header = existing_fieldnames != fieldnames
 
         return fieldnames, existing_fieldnames, existing_rows, should_write_header
-    except Exception as e:
-        raise Exception(f"Failed to inspect existing results at {csv_path}: {e}") from e
+    except (OSError, ValueError, csv.Error) as error:
+        raise ValueError(
+            f"Failed to inspect existing results at {csv_path}: {error}"
+        ) from error
 
 
 def sanitize_csv_value(value: object) -> object:
@@ -447,6 +486,113 @@ def format_output_row(row: OutputEntry) -> dict[str, object]:
     return {key: sanitize_csv_value(value) for key, value in formatted_row.items()}
 
 
+def _normalized_existing_rows(
+    existing_rows: list[dict[str, str]], fieldnames: list[str]
+) -> list[dict[str, object]]:
+    """Normalize existing CSV rows to a migrated schema.
+
+    Args:
+        existing_rows: Rows read from the existing output file.
+        fieldnames: Ordered field names for the migrated output.
+
+    Returns:
+        Existing rows with missing values filled and formula-leading strings escaped.
+    """
+    return [
+        {
+            fieldname: sanitize_csv_value(
+                row.get(fieldname, "N/A") if row.get(fieldname) is not None else "N/A"
+            )
+            for fieldname in fieldnames
+        }
+        for row in existing_rows
+    ]
+
+
+def _rewrite_csv_atomically(
+    csv_path: str,
+    fieldnames: list[str],
+    existing_rows: list[dict[str, object]],
+    results: list[dict[str, object]],
+) -> None:
+    """Write a complete CSV to a sibling temporary file and replace the destination.
+
+    Args:
+        csv_path: Destination CSV path.
+        fieldnames: Ordered output field names.
+        existing_rows: Migrated rows from the current destination.
+        results: Newly prepared rows to append after the migrated rows.
+    """
+    destination = Path(csv_path)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            newline="",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            writer = csv.DictWriter(
+                temporary_file, fieldnames=fieldnames, restval="N/A"
+            )
+            writer.writeheader()
+            writer.writerows(existing_rows)
+            writer.writerows(results)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+
+        if destination.exists():
+            temporary_path.chmod(stat.S_IMODE(destination.stat().st_mode))
+        Path(temporary_path).replace(destination)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _write_csv_results(
+    csv_path: str,
+    fieldnames: list[str],
+    existing_fieldnames: list[str],
+    existing_rows: list[dict[str, str]],
+    should_write_header: bool,
+    results: list[dict[str, object]],
+) -> None:
+    """Write prepared results, atomically replacing files that need migration.
+
+    Args:
+        csv_path: Destination CSV path.
+        fieldnames: Current output field names.
+        existing_fieldnames: Field names read from the destination.
+        existing_rows: Rows read from the destination.
+        should_write_header: Whether the destination needs a new header.
+        results: Newly prepared rows to write.
+
+    Raises:
+        RuntimeError: If the destination cannot be written safely.
+    """
+    try:
+        if should_write_header:
+            migrated_fieldnames = list(dict.fromkeys(fieldnames + existing_fieldnames))
+            _rewrite_csv_atomically(
+                csv_path,
+                migrated_fieldnames,
+                _normalized_existing_rows(existing_rows, migrated_fieldnames),
+                results,
+            )
+            return
+
+        with Path(csv_path).open(mode="a", newline="", encoding="utf-8") as output_file:
+            writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+            writer.writerows(results)
+    except (OSError, ValueError, csv.Error) as error:
+        raise RuntimeError(f"Failed to write CSV file: {error}") from error
+
+
 def export_results(
     log_dir: str | None = None,
     log_files: str | list[str] | None = None,
@@ -459,12 +605,12 @@ def export_results(
     log_progress: bool = True,
     fail_on_log_error: bool = False,
 ) -> int:
-    """
-    Export the results of the evaluation to a CSV file.
+    """Export the results of the evaluation to a CSV file.
 
     Args:
         log_dir (optional): Path to the directory containing the Inspect logs.
-        log_files (optional): Path or list of paths to the Inspect evaluation log file/s.
+        log_files (optional): Path or list of paths to the Inspect evaluation
+            log files.
         logs (optional): The Inspect evaluation log or list of logs.
         tasks (optional): The tasks to include in the results.
         target_metrics (optional): The target metrics to include in the results by task.
@@ -475,6 +621,13 @@ def export_results(
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
         log_progress: Whether to log detailed export progress.
         fail_on_log_error: Whether to reject the export when any log fails to load.
+
+    Returns:
+        The number of result rows written to the CSV file.
+
+    Raises:
+        ValueError: If inputs or an existing CSV are invalid, or a requested
+            log cannot be loaded in strict mode.
     """
     # Prepare the output path
     if not csv_path:
@@ -512,35 +665,14 @@ def export_results(
             log_progress=log_progress,
         )
     ]
-    try:
-        # Rewrite an existing file if the header has changed
-        if should_write_header:
-            # Get the ordered union of the new and existing fieldnames
-            # (this is the most efficient way to do this)
-            fieldnames = list(dict.fromkeys(fieldnames + existing_fieldnames))
-            with open(csv_path, mode="w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=fieldnames, restval="N/A")
-                writer.writeheader()
-                writer.writerows(
-                    {
-                        fieldname: sanitize_csv_value(
-                            row.get(fieldname, "N/A")
-                            if row.get(fieldname) is not None
-                            else "N/A"
-                        )
-                        for fieldname in fieldnames
-                    }
-                    for row in existing_rows
-                )
-            should_write_header = False
-        # Append to CSV, writing the header only for new, empty, or migrated files
-        with open(csv_path, mode="a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            if should_write_header:
-                writer.writeheader()
-            writer.writerows(results)
-        if log_progress:
-            logger.info("📝 Finished writing results to %s", csv_path)
-        return len(results)
-    except Exception as e:
-        raise Exception(f"Failed to write CSV file: {e}") from e
+    _write_csv_results(
+        csv_path,
+        fieldnames,
+        existing_fieldnames,
+        existing_rows,
+        should_write_header,
+        results,
+    )
+    if log_progress:
+        logger.info("📝 Finished writing results to %s", csv_path)
+    return len(results)
