@@ -2,15 +2,22 @@
 
 Generate standardized concise metric summaries from [Inspect AI](https://inspect.aisi.org.uk/) evaluation logs and append them to a CSV.
 
+> [!IMPORTANT]
+> Inspect Brief currently supports Inspect `.eval` logs only. JSON-formatted
+> Inspect evaluation logs are not supported as input.
+
 ## Features
 
-- Load Inspect `.eval` logs from a directory (recursive) and/or explicit file paths
+- Load Inspect `.eval` logs recursively or from explicit file paths
 - Optionally filter by task name and select target metrics per task
 - Append results to a CSV (rewrites the header when columns change, preserving existing rows)
 - Skip runs already present in the CSV via `--skip-existing`
 - Optionally export each task automatically through an Inspect Hook
 
-## Installation
+## Development installation
+
+The commands below install the project from a local repository checkout. Run
+them from the repository root:
 
 ```bash
 uv venv .venv
@@ -18,40 +25,64 @@ source .venv/bin/activate
 uv sync
 ```
 
-## Usage
-
-Prefer the console script after install, or the module form:
+Developers working from the repository root can also invoke the package directly:
 
 ```bash
-inspect-brief [OPTIONS]
 python -m inspect_brief [OPTIONS]
 ```
 
-At least one of `--log-dir` or `--log-files` is required. Use `--log-dir` to
-recursively discover logs, `--log-files` to select explicit logs, or both to
-combine them.
+## Choose a workflow
 
-## Inspect Hook
+Inspect Brief can run in two separate ways:
 
-The package also provides an opt-in Inspect Hook. Configure an output path, then
-run Inspect normally; the hook appends a brief when each task completes.
+- **Inspect Hook:** automatically export a summary whenever an Inspect task finishes.
+- **CLI:** manually process existing `.eval` logs after an evaluation has completed.
+
+The hook is the recommended flow for automatic export during normal Inspect runs.
+Use the CLI for existing logs, one-off exports, or regenerating a summary CSV.
+
+## Automatic export with the Inspect Hook
+
+The opt-in hook receives each completed task directly from Inspect and appends its
+summary rows to the configured CSV. You continue running `inspect eval` normally;
+there is no separate `inspect-brief` command in this flow.
+
+### 1. Configure the output CSV
+
+Set the required output path in the shell that will run Inspect:
 
 ```bash
 export INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
-inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
 ```
 
-The hook is disabled unless `INSPECT_BRIEF_CSV_PATH` is set. Set
-`INSPECT_BRIEF_ENABLED=0` to disable it explicitly.
+The hook is enabled when `INSPECT_BRIEF_CSV_PATH` is set. Set
+`INSPECT_BRIEF_ENABLED=0` to disable it explicitly without removing the output
+configuration.
 
-You can put this configuration in an untracked `.env` file in the project
-directory; it is loaded when Inspect imports the hook:
+For persistent local configuration, put the variables in an untracked `.env`
+file in the project directory. Inspect Brief loads this file when Inspect imports
+the hook:
 
 ```dotenv
 INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
+# Optional examples:
+INSPECT_BRIEF_TASKS=inspect_evals/gpqa_diamond
+INSPECT_BRIEF_TARGET_METRICS=target_metrics.json
+INSPECT_BRIEF_SKIP_EXISTING=true
 ```
 
-Hook configuration:
+### 2. Run Inspect normally
+
+```bash
+inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
+```
+
+After every task completes, the hook appends the selected metric rows to the CSV
+and logs the number of rows exported. At the end of the Inspect run, it logs a
+summary containing the handled task count, failed task count, exported row count,
+and output path.
+
+### Hook configuration
 
 | Variable | Required | Description |
 | --- | --- | --- |
@@ -61,21 +92,41 @@ Hook configuration:
 | `INSPECT_BRIEF_TARGET_METRICS` | No | Target-metrics JSON object or path to a JSON file. |
 | `INSPECT_BRIEF_SKIP_EXISTING` | No | Set to `1`, `true`, `yes`, or `on` to skip Run IDs already in the CSV. |
 
-The `inspect-brief` CLI remains available for summarizing existing logs or
-regenerating a CSV.
+## Manual export with the CLI
 
-### Options
+Use this flow when the hook was not enabled during the Inspect run, or when you
+need to process existing logs again.
+
+### 1. Choose the input logs
+
+At least one of `--log-dir` or `--log-files` is required:
+
+- `--log-dir` recursively discovers `.eval` logs under a directory.
+- `--log-files` accepts one or more explicit `.eval` paths, separated by commas.
+- Supplying both combines the discovered and explicit logs and removes duplicates.
+
+JSON-formatted Inspect logs are not supported by either CLI input option.
+
+### 2. Run the export
+
+After installation, invoke the console script:
+
+```bash
+inspect-brief [OPTIONS]
+```
+
+### CLI options
 
 | Option | Description |
 | --- | --- |
 | `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files and combines them with `--log-files` when both are supplied |
-| `--log-files` | One or more explicit log paths (comma-separated); combines them with logs found by `--log-dir` when both are supplied |
+| `--log-files` | One or more explicit `.eval` paths (comma-separated); combines them with logs found by `--log-dir` when both are supplied |
 | `--tasks` | Tasks to include (comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
 | `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |
 | `--skip-existing` | Skip task runs whose Run ID is already in the CSV |
 
-### Basic examples
+### CLI examples
 
 Summarize every `.eval` under a log tree:
 
@@ -147,4 +198,4 @@ Results are appended to the CSV. Columns:
 
 ## Contributing
 
-See [`inspect_brief/AGENTS.md`](inspect_brief/AGENTS.md) for project guidelines.
+See [`AGENTS.md`](AGENTS.md) for project guidelines.
