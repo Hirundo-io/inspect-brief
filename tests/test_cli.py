@@ -123,6 +123,15 @@ def test_cli_rejects_invalid_log_file_paths(
     assert "Invalid value for --log-files" in normalized_output
 
 
+def test_cli_rejects_empty_log_file_values() -> None:
+    result = CliRunner().invoke(cli.app, ["--log-files", " , "])
+
+    assert result.exit_code == 2
+    normalized_output = " ".join(strip_ansi(result.output).split())
+    assert "Invalid value for --log-files" in normalized_output
+    assert "At least one log file path must be provided" in normalized_output
+
+
 @pytest.mark.parametrize(
     "error",
     [

@@ -79,11 +79,15 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
         Resolved log-file paths, or None when no paths are supplied.
 
     Raises:
-        ValueError: If a path does not identify a readable file.
+        ValueError: If no paths remain after normalization, or a path does not
+            identify a readable file.
     """
+    if values is None:
+        return None
+
     log_files = parse_comma_separated(values)
     if log_files is None:
-        return None
+        raise ValueError("At least one log file path must be provided.")
 
     resolved_log_files: list[str] = []
     for value in log_files:

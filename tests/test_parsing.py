@@ -32,6 +32,11 @@ def test_parse_log_files_normalizes_and_resolves_paths(tmp_path: Path) -> None:
     ]
 
 
+def test_parse_log_files_rejects_empty_values() -> None:
+    with pytest.raises(ValueError, match="At least one log file path"):
+        parse_log_files([" ", " , "])
+
+
 def test_parse_target_metrics_rejects_invalid_json() -> None:
     with pytest.raises(ValueError, match="inline value 'not json' is not valid JSON"):
         parse_target_metrics("not json")
