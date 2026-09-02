@@ -5,17 +5,27 @@ import logging
 import os
 import stat
 import tempfile
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import TypedDict, get_type_hints
+from typing import Protocol, TypedDict, get_type_hints
 from urllib.parse import urlsplit, urlunsplit
 
 from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
 logger = logging.getLogger(__name__)
 
-type ProgressCallback = Callable[[int, int, str], None]
+
+class ProgressCallback(Protocol):
+    """Receive progress updates while Inspect logs are prepared."""
+
+    def __call__(
+        self,
+        completed_log_count: int,
+        total_log_count: int,
+        current_task_name: str,
+        /,
+    ) -> None:
+        """Report the current log count and task name."""
 
 
 class InspectScore(TypedDict):
@@ -422,7 +432,7 @@ def prepare_results(
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
         log_progress: Whether to log progress while preparing results.
         fail_on_log_error: Whether to reject the results when any log fails to load.
-        progress_callback: Optional callback receiving completed task count, total task
+        progress_callback: Optional callback receiving completed log count, total log
             count, and the current task name.
 
     Returns:
@@ -470,7 +480,8 @@ def prepare_results(
         )
     # Prepare the results for CSV export
     results: list[OutputEntry] = []
-    for completed, log in enumerate(logs, start=1):
+    total_log_count = len(logs)
+    for completed_log_count, log in enumerate(logs, start=1):
         task_target_metrics: list[InspectScore] | None = (
             target_metrics.get(log.eval.task) if target_metrics else None
         )
@@ -482,7 +493,7 @@ def prepare_results(
             ),
         )
         if progress_callback is not None:
-            progress_callback(completed, len(logs), log.eval.task)
+            progress_callback(completed_log_count, total_log_count, log.eval.task)
 
     return results
 
@@ -700,7 +711,7 @@ def export_results(
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
         log_progress: Whether to log detailed export progress.
         fail_on_log_error: Whether to reject the export when any log fails to load.
-        progress_callback: Optional callback receiving completed task count, total task
+        progress_callback: Optional callback receiving completed log count, total log
             count, and the current task name.
 
     Returns:

@@ -31,6 +31,21 @@ def configure_logging() -> None:
     )
 
 
+def sanitize_terminal_text(value: str) -> str:
+    """Escape characters that can control or rewrite terminal output.
+
+    Args:
+        value: Untrusted text intended for terminal display.
+
+    Returns:
+        Text with non-printable characters replaced by visible escape sequences.
+    """
+    return "".join(
+        character if character.isprintable() else repr(character)[1:-1]
+        for character in value
+    )
+
+
 def parse_target_metrics_option(
     value: str | None,
 ) -> dict[str, list[InspectScore]] | None:
@@ -163,11 +178,18 @@ def main(
             disable=None,
         ) as progress:
 
-            def update_progress(completed: int, total: int, task: str) -> None:
+            def update_progress(
+                completed_log_count: int,
+                total_log_count: int,
+                current_task_name: str,
+            ) -> None:
                 """Update the standalone CLI progress display."""
-                progress.total = total
-                progress.set_postfix_str(task, refresh=False)
-                progress.update(completed - progress.n)
+                progress.total = total_log_count
+                progress.set_postfix_str(
+                    sanitize_terminal_text(current_task_name),
+                    refresh=False,
+                )
+                progress.update(completed_log_count - progress.n)
 
             export_results(
                 log_dir=str(log_dir) if log_dir else None,

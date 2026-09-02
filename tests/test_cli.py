@@ -7,6 +7,13 @@ from typer.testing import CliRunner
 from inspect_brief import cli
 
 
+def test_sanitize_terminal_text_escapes_control_characters() -> None:
+    assert (
+        cli.sanitize_terminal_text("task\r\n\x1b[31m\tname")
+        == r"task\r\n\x1b[31m\tname"
+    )
+
+
 def test_cli_parses_options_and_exports_results(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

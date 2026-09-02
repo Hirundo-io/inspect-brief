@@ -309,8 +309,14 @@ def test_prepare_results_reports_progress_without_per_task_logs(
         lambda _, __, log_progress: log_progress_values.append(log_progress) or [],
     )
 
-    def record_progress(completed: int, total: int, task: str) -> None:
-        updates.append((completed, total, task))
+    def record_progress(
+        completed_log_count: int,
+        total_log_count: int,
+        current_task_name: str,
+    ) -> None:
+        updates.append(
+            (completed_log_count, total_log_count, current_task_name),
+        )
 
     prepare_results(logs=logs, progress_callback=record_progress)
 
@@ -351,7 +357,11 @@ def test_export_results_passes_progress_callback(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def progress_callback(completed: int, total: int, task: str) -> None:
+    def progress_callback(
+        completed_log_count: int,
+        total_log_count: int,
+        current_task_name: str,
+    ) -> None:
         pass
 
     monkeypatch.setattr(
