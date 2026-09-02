@@ -92,6 +92,8 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
     resolved_log_files: list[str] = []
     for value in log_files:
         path = Path(value)
+        if path.suffix != ".eval":
+            raise ValueError("Inspect Brief currently supports only .eval log files")
         if not path.exists():
             raise ValueError(f"File {value!r} does not exist.")
         if not path.is_file():

@@ -128,8 +128,8 @@ def test_load_logs_deduplicates_equivalent_paths(
     monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
     monkeypatch.chdir(tmp_path)
 
-    assert load_logs(str(tmp_path), "run.eval", False) == ["run.eval"]
-    assert loaded == ["run.eval"]
+    assert load_logs(str(tmp_path), "run.eval", False) == [str(log_path)]
+    assert loaded == [str(log_path)]
 
 
 def test_load_logs_preserves_and_deduplicates_remote_uris(
@@ -232,8 +232,9 @@ def test_load_logs_exports_json_beside_symlink(
     target.touch()
     symlink = tmp_path / "linked.eval"
     symlink.symlink_to(target)
+    loaded: list[str] = []
     exported: list[Path] = []
-    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
     monkeypatch.setattr(
         core,
         "write_eval_log",
@@ -242,6 +243,7 @@ def test_load_logs_exports_json_beside_symlink(
 
     load_logs(log_files=str(symlink), export_jsons=True)
 
+    assert loaded == [str(target)]
     assert exported == [symlink.with_suffix(".json")]
 
 

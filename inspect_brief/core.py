@@ -203,7 +203,8 @@ def load_logs(
             if source_key in source_keys:
                 continue
             source_keys.add(source_key)
-            log = read_eval_log(log_file)
+            read_source = log_file if isinstance(source_key, str) else str(source_key)
+            log = read_eval_log(read_source)
             logs.append(log)
             if export_jsons:
                 logger.info("📝 Exporting Inspect log %s as JSON", log_file)

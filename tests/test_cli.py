@@ -135,6 +135,19 @@ def test_cli_rejects_empty_log_file_values() -> None:
     assert "At least one log file path must be provided" in normalized_output
 
 
+def test_cli_rejects_non_eval_log_files_as_parameter_errors(tmp_path: Path) -> None:
+    log_path = tmp_path / "run.json"
+    log_path.touch()
+
+    result = CliRunner().invoke(cli.app, ["--log-files", str(log_path)])
+
+    assert result.exit_code == 2
+    normalized_output = " ".join(strip_ansi(result.output).split())
+    assert "Invalid value for --log-files" in normalized_output
+    assert "supports only .eval" in normalized_output
+    assert "log files" in normalized_output
+
+
 @pytest.mark.parametrize(
     "error",
     [

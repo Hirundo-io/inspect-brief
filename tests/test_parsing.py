@@ -37,6 +37,14 @@ def test_parse_log_files_rejects_empty_values() -> None:
         parse_log_files([" ", " , "])
 
 
+def test_parse_log_files_rejects_non_eval_files(tmp_path: Path) -> None:
+    log_path = tmp_path / "run.json"
+    log_path.touch()
+
+    with pytest.raises(ValueError, match=r"supports only \.eval log files"):
+        parse_log_files([str(log_path)])
+
+
 def test_parse_target_metrics_rejects_invalid_json() -> None:
     with pytest.raises(ValueError, match="inline value 'not json' is not valid JSON"):
         parse_target_metrics("not json")
