@@ -117,6 +117,26 @@ def test_cli_accepts_repeatable_and_comma_separated_log_files(
     assert exported["log_files"] == [str(tmp_path / name) for name in expected_names]
 
 
+def test_cli_accepts_filesystem_uri_log_sources(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exported: dict[str, object] = {}
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "export_results",
+        lambda **kwargs: exported.update(kwargs) or 0,
+    )
+
+    result = CliRunner().invoke(
+        cli.app,
+        ["--log-files", "s3://bucket/remote.eval"],
+    )
+
+    assert result.exit_code == 0
+    assert exported["log_files"] == ["s3://bucket/remote.eval"]
+
+
 @pytest.mark.parametrize("path_kind", ["missing", "directory"])
 def test_cli_rejects_invalid_log_file_paths(
     tmp_path: Path,

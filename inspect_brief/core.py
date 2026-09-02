@@ -203,6 +203,29 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     return Path(log_file).with_suffix(".json")
 
 
+def _export_log_json(log: EvalLog, log_file: str) -> None:
+    """Export a JSON sidecar without exposing URI credentials.
+
+    Args:
+        log: Inspect evaluation log to export.
+        log_file: Source location of the evaluation log.
+    """
+    display_source = _display_log_source(log_file)
+    if display_source != log_file:
+        logger.warning(
+            "❌ Could not export Inspect log %s as JSON: URI sidecars with "
+            "userinfo, query, or fragment components are not supported",
+            display_source,
+        )
+        return
+
+    logger.info("📝 Exporting Inspect log %s as JSON", display_source)
+    try:
+        write_eval_log(log, _json_sidecar_path(log_file), format="json")
+    except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
+        logger.warning("❌ Could not export Inspect log %s", display_source)
+
+
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
     """Calculate runtime (in seconds) from ISO format timestamp strings.
 
@@ -238,7 +261,9 @@ def load_logs(
         log_dir (optional): Path to the directory containing the Inspect logs.
         log_files (optional): Path or list of paths to the Inspect evaluation
             log files.
-        export_jsons (optional): Whether to export the Inspect logs as JSON files.
+        export_jsons (optional): Whether to export the Inspect logs as JSON sidecars.
+            URI sources containing userinfo, query, or fragment components are
+            skipped because they cannot be forwarded safely to the writer.
         fail_on_error: Whether to raise after processing all paths if any log
             fails to load.
 
@@ -273,11 +298,7 @@ def load_logs(
             log = read_eval_log(read_source)
             logs.append(log)
             if export_jsons:
-                logger.info("📝 Exporting Inspect log %s as JSON", display_source)
-                try:
-                    write_eval_log(log, _json_sidecar_path(log_file), format="json")
-                except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
-                    logger.warning("❌ Could not export Inspect log %s", display_source)
+                _export_log_json(log, log_file)
         # Inspect log readers and storage backends may raise provider-specific
         # exceptions. Isolate each path so one malformed log does not stop the rest.
         except Exception as error:  # ruff: ignore[blind-except]

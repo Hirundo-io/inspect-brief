@@ -6,7 +6,12 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import get_type_hints
 
-from inspect_brief.core import InspectScore, target_metric_name
+from inspect_brief.core import (
+    InspectScore,
+    _eval_log_source_key,
+    _is_log_uri,
+    target_metric_name,
+)
 
 _INSPECT_SCORE_KEYS = set(get_type_hints(InspectScore))
 
@@ -70,17 +75,19 @@ def parse_comma_separated(
 
 
 def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
-    """Normalize repeatable log-file values and validate each path.
+    """Normalize repeatable log-file values and validate each source.
 
     Args:
-        values: Raw values, each of which may contain comma-separated paths.
+        values: Raw values, each of which may contain comma-separated paths or
+            filesystem URIs.
 
     Returns:
-        Resolved log-file paths, or None when no paths are supplied.
+        Resolved local paths and unchanged filesystem URIs, or None when no
+        sources are supplied.
 
     Raises:
-        ValueError: If no paths remain after normalization, or a path does not
-            identify a readable file.
+        ValueError: If no sources remain after normalization, or a source is
+            invalid.
     """
     if values is None:
         return None
@@ -91,6 +98,11 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
 
     resolved_log_files: list[str] = []
     for value in log_files:
+        if _is_log_uri(value):
+            _eval_log_source_key(value)
+            resolved_log_files.append(value)
+            continue
+
         path = Path(value)
         if path.suffix != ".eval":
             raise ValueError("Inspect Brief currently supports only .eval log files")

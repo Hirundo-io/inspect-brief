@@ -194,7 +194,7 @@ def test_load_logs_redacts_uri_credentials_from_diagnostics(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    log_uri = "https://user:password@example.com/run.eval?token=secret#private"
+    log_uri = "https://alice:password@example.com/run.eval?token=secret#private"
     monkeypatch.setattr(
         core,
         "read_eval_log",
@@ -207,7 +207,7 @@ def test_load_logs_redacts_uri_credentials_from_diagnostics(
     assert "https://example.com/run.eval" in caplog.text
     assert "https://example.com/run.eval" in str(error.value)
     assert error.value.__cause__ is not None
-    for secret in ("user", "password", "token", "secret", "private"):
+    for secret in ("alice", "password", "token", "secret", "private"):
         assert secret not in caplog.text
         assert secret not in str(error.value)
         assert secret not in str(error.value.__cause__)
@@ -217,18 +217,21 @@ def test_load_logs_redacts_uri_credentials_from_export_messages(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    log_uri = "https://user:password@example.com/run.eval?token=secret#private"
+    log_uri = "https://alice:password@example.com/run.eval?token=secret#private"
+    exported: list[str | Path] = []
     monkeypatch.setattr(core, "read_eval_log", lambda path: path)
     monkeypatch.setattr(
         core,
         "write_eval_log",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unavailable")),
+        lambda _log, path, **_kwargs: exported.append(path),
     )
 
     load_logs(log_files=log_uri, export_jsons=True)
 
+    assert exported == []
     assert "https://example.com/run.eval" in caplog.text
-    for secret in ("user", "password", "token", "secret", "private"):
+    assert "URI sidecars" in caplog.text
+    for secret in ("alice", "password", "token", "secret", "private"):
         assert secret not in caplog.text
 
 

@@ -70,10 +70,12 @@ def parse_log_files_option(values: list[str] | None) -> list[str] | None:
     """Convert shared log-file validation errors into CLI parameter errors.
 
     Args:
-        values: Raw option values, each of which may contain comma-separated paths.
+        values: Raw option values, each of which may contain comma-separated
+            paths or filesystem URIs.
 
     Returns:
-        Resolved log-file paths, or None when no paths are supplied.
+        Resolved local paths and unchanged filesystem URIs, or None when no
+        sources are supplied.
 
     Raises:
         typer.BadParameter: If a path does not identify a readable file.
@@ -108,10 +110,10 @@ def main(
         list[str] | None,
         typer.Option(
             "--log-files",
-            metavar="PATH[,PATH...]",
+            metavar="SOURCE[,SOURCE...]",
             help=(
-                "Paths to Inspect evaluation log files; repeat the option or "
-                "separate paths with commas"
+                "Paths or filesystem URIs for Inspect evaluation logs; repeat "
+                "the option or separate sources with commas"
             ),
         ),
     ] = None,
