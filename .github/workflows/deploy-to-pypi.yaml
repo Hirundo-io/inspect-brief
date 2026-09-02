@@ -67,9 +67,30 @@ jobs:
             --python /tmp/inspect-brief-release-venv/bin/python \
             --no-deps \
             dist/*.whl
+          cd /tmp
           /tmp/inspect-brief-release-venv/bin/python -c \
-            'from importlib.metadata import entry_points; assert any(item.name == "inspect_brief" for item in entry_points(group="inspect_ai"))'
+            'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
           /tmp/inspect-brief-release-venv/bin/inspect-brief --help
+      - name: Test source distribution installation and entry points
+        run: |
+          uv venv --python 3.12 /tmp/inspect-brief-sdist-venv
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --require-hashes \
+            --requirement requirements/build.txt
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --require-hashes \
+            --requirement /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --no-build-isolation \
+            --no-deps \
+            dist/*.tar.gz
+          cd /tmp
+          /tmp/inspect-brief-sdist-venv/bin/python -c \
+            'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
+          /tmp/inspect-brief-sdist-venv/bin/inspect-brief --help
       - name: Package verified distributions
         id: distributions
         run: |

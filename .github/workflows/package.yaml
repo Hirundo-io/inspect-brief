@@ -17,8 +17,13 @@ permissions:
 
 jobs:
   build-and-install:
+    name: Python ${{ matrix.python-version }} with minimum Inspect AI
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -28,13 +33,13 @@ jobs:
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: false
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           version: "0.12.8"
       - name: Build distributions
         run: uv build --build-constraints requirements/build.txt --require-hashes
       - name: Install with the minimum Inspect AI version
         run: |
-          uv venv --python 3.12 /tmp/inspect-brief-package-venv
+          uv venv --python "${{ matrix.python-version }}" /tmp/inspect-brief-package-venv
           uv pip install \
             --python /tmp/inspect-brief-package-venv/bin/python \
             --no-deps \
@@ -45,6 +50,7 @@ jobs:
             dist/*.whl
       - name: Verify installed entry points
         run: |
+          cd /tmp
           /tmp/inspect-brief-package-venv/bin/python -c \
             'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
           /tmp/inspect-brief-package-venv/bin/inspect-brief --help
