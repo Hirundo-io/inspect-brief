@@ -144,8 +144,22 @@ def test_load_logs_deduplicates_file_uris_and_local_path(
 
     assert load_logs(
         log_files=[single_slash_uri, log_path.as_uri(), str(log_path)]
-    ) == [single_slash_uri]
-    assert loaded == [single_slash_uri]
+    ) == [str(log_path)]
+    assert loaded == [str(log_path)]
+
+
+def test_load_logs_decodes_file_uri_before_validation_and_reading(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    encoded_uri = log_path.as_uri().replace(".eval", ".%65val")
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_files=encoded_uri) == [str(log_path)]
+    assert loaded == [str(log_path)]
 
 
 def test_load_logs_preserves_and_deduplicates_remote_uris(
@@ -174,6 +188,48 @@ def test_load_logs_exports_json_beside_remote_log(
     load_logs(log_files=log_uri, export_jsons=True)
 
     assert exported == ["s3://inspect-logs/run.json"]
+
+
+def test_load_logs_redacts_uri_credentials_from_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_uri = "https://user:password@example.com/run.eval?token=secret#private"
+    monkeypatch.setattr(
+        core,
+        "read_eval_log",
+        lambda path: (_ for _ in ()).throw(OSError(log_uri)),
+    )
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log") as error:
+        load_logs(log_files=log_uri, fail_on_error=True)
+
+    assert "https://example.com/run.eval" in caplog.text
+    assert "https://example.com/run.eval" in str(error.value)
+    assert error.value.__cause__ is not None
+    for secret in ("user", "password", "token", "secret", "private"):
+        assert secret not in caplog.text
+        assert secret not in str(error.value)
+        assert secret not in str(error.value.__cause__)
+
+
+def test_load_logs_redacts_uri_credentials_from_export_messages(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_uri = "https://user:password@example.com/run.eval?token=secret#private"
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("unavailable")),
+    )
+
+    load_logs(log_files=log_uri, export_jsons=True)
+
+    assert "https://example.com/run.eval" in caplog.text
+    for secret in ("user", "password", "token", "secret", "private"):
+        assert secret not in caplog.text
 
 
 def test_load_logs_skips_unresolvable_paths_and_continues(

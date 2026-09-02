@@ -127,6 +127,41 @@ def _resolve_file_uri_path(log_file: str) -> Path:
     return _resolve_eval_log_path(url2pathname(f"{authority}{parsed.path}"))
 
 
+def _display_log_source(log_file: str) -> str:
+    """Return a log source safe for diagnostic output.
+
+    Args:
+        log_file: Local path or filesystem URI supplied to the loader.
+
+    Returns:
+        The original local path, or a URI without userinfo, query, or fragment.
+    """
+    if not _is_log_uri(log_file):
+        return log_file
+
+    parsed = urlsplit(log_file)
+    if "@" not in parsed.netloc and not parsed.query and not parsed.fragment:
+        return log_file
+    return urlunsplit(
+        parsed._replace(netloc=parsed.netloc.rpartition("@")[2], query="", fragment="")
+    )
+
+
+def _redact_log_error(log_file: str, error: Exception) -> Exception:
+    """Remove sensitive URI details from a provider error.
+
+    Args:
+        log_file: Log source associated with the error.
+        error: Error raised while loading the source.
+
+    Returns:
+        The original error for non-sensitive sources, or a safe replacement.
+    """
+    if _display_log_source(log_file) == log_file:
+        return error
+    return RuntimeError(f"{type(error).__name__} while accessing redacted log URI")
+
+
 def _eval_log_source_key(log_file: str) -> str | Path:
     """Validate a log source and return its stable deduplication key.
 
@@ -141,10 +176,10 @@ def _eval_log_source_key(log_file: str) -> str | Path:
     """
     if _is_log_uri(log_file):
         parsed = urlsplit(log_file)
-        if PurePosixPath(parsed.path).suffix != ".eval":
-            raise ValueError("Inspect Brief currently supports only .eval log files")
         if parsed.scheme == "file":
             return _resolve_file_uri_path(log_file)
+        if PurePosixPath(parsed.path).suffix != ".eval":
+            raise ValueError("Inspect Brief currently supports only .eval log files")
         return log_file
 
     return _resolve_eval_log_path(log_file)
@@ -226,6 +261,7 @@ def load_logs(
     logs: list[EvalLog] = []
     source_keys: set[str | Path] = set()
     for log_file in paths:
+        display_source = _display_log_source(log_file)
         try:
             # Canonicalize local paths for deduplication while preserving provider
             # URIs so Inspect's fsspec-backed reader can handle them unchanged.
@@ -233,20 +269,23 @@ def load_logs(
             if source_key in source_keys:
                 continue
             source_keys.add(source_key)
-            read_source = log_file if _is_log_uri(log_file) else str(source_key)
+            read_source = log_file if isinstance(source_key, str) else str(source_key)
             log = read_eval_log(read_source)
             logs.append(log)
             if export_jsons:
-                logger.info("📝 Exporting Inspect log %s as JSON", log_file)
+                logger.info("📝 Exporting Inspect log %s as JSON", display_source)
                 try:
                     write_eval_log(log, _json_sidecar_path(log_file), format="json")
                 except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
-                    logger.warning("❌ Could not export Inspect log %s", log_file)
+                    logger.warning("❌ Could not export Inspect log %s", display_source)
         # Inspect log readers and storage backends may raise provider-specific
         # exceptions. Isolate each path so one malformed log does not stop the rest.
         except Exception as error:  # ruff: ignore[blind-except]
-            logger.warning("❌ Could not load Inspect log %s: %s", log_file, error)
-            load_errors.append((log_file, error))
+            error = _redact_log_error(log_file, error)
+            logger.warning(
+                "❌ Could not load Inspect log %s: %s", display_source, error
+            )
+            load_errors.append((display_source, error))
 
     if load_errors and fail_on_error:
         failed_paths = ", ".join(path for path, _ in load_errors)
