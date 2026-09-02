@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+from tqdm import tqdm
 
 from inspect_brief.core import InspectScore, export_results
 from inspect_brief.parsing import (
@@ -152,15 +153,33 @@ def main(
     """
     configure_logging()
     try:
-        export_results(
-            log_dir=str(log_dir) if log_dir else None,
-            log_files=parse_log_files_option(log_files),
-            tasks=parse_comma_separated(tasks),
-            target_metrics=parse_target_metrics_option(target_metrics),
-            csv_path=str(csv_path) if csv_path else None,
-            skip_existing=skip_existing,
-            fail_on_log_error=True,
-        )
+        parsed_log_files = parse_log_files_option(log_files)
+        parsed_tasks = parse_comma_separated(tasks)
+        parsed_target_metrics = parse_target_metrics_option(target_metrics)
+        with tqdm(
+            desc="Preparing Inspect tasks",
+            unit="task",
+            dynamic_ncols=True,
+            disable=None,
+        ) as progress:
+
+            def update_progress(completed: int, total: int, task: str) -> None:
+                """Update the standalone CLI progress display."""
+                progress.total = total
+                progress.set_postfix_str(task, refresh=False)
+                progress.update(completed - progress.n)
+
+            export_results(
+                log_dir=str(log_dir) if log_dir else None,
+                log_files=parsed_log_files,
+                tasks=parsed_tasks,
+                target_metrics=parsed_target_metrics,
+                csv_path=str(csv_path) if csv_path else None,
+                skip_existing=skip_existing,
+                fail_on_log_error=True,
+                log_progress=False,
+                progress_callback=update_progress,
+            )
     except (OSError, RuntimeError, ValueError) as error:
         typer.echo(f"Error: {error}", err=True)
         raise typer.Exit(code=1) from error

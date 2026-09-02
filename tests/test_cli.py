@@ -46,6 +46,8 @@ def test_cli_parses_options_and_exports_results(
     )
 
     assert result.exit_code == 0
+    progress_callback = exported.pop("progress_callback")
+    assert callable(progress_callback)
     assert exported == {
         "log_dir": str(log_dir),
         "log_files": [str(first_log), str(second_log)],
@@ -63,6 +65,7 @@ def test_cli_parses_options_and_exports_results(
         "csv_path": str(csv_path),
         "skip_existing": True,
         "fail_on_log_error": True,
+        "log_progress": False,
     }
 
 

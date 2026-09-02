@@ -264,6 +264,30 @@ def test_prepare_results_preserves_positional_log_progress(
     assert log_progress_values == [False]
 
 
+def test_prepare_results_reports_progress_without_per_task_logs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_progress_values: list[bool] = []
+    updates: list[tuple[int, int, str]] = []
+    logs = [
+        evaluation_log("task-a", "run-a", 1.0),
+        evaluation_log("task-b", "run-b", 0.5),
+    ]
+    monkeypatch.setattr(
+        core,
+        "prepare_log_results",
+        lambda _, __, log_progress: log_progress_values.append(log_progress) or [],
+    )
+
+    def record_progress(completed: int, total: int, task: str) -> None:
+        updates.append((completed, total, task))
+
+    prepare_results(logs=logs, progress_callback=record_progress)
+
+    assert log_progress_values == [False, False]
+    assert updates == [(1, 2, "task-a"), (2, 2, "task-b")]
+
+
 def test_export_results_preserves_positional_log_progress(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -289,6 +313,31 @@ def test_export_results_preserves_positional_log_progress(
 
     assert captured["log_progress"] is False
     assert captured["fail_on_log_error"] is False
+
+
+def test_export_results_passes_progress_callback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def progress_callback(completed: int, total: int, task: str) -> None:
+        pass
+
+    monkeypatch.setattr(
+        core,
+        "prepare_results",
+        lambda **kwargs: captured.update(kwargs) or [],
+    )
+
+    export_results(
+        logs=[evaluation_log("task-a", "run-a", 1.0)],
+        csv_path=str(tmp_path / "brief.csv"),
+        log_progress=False,
+        progress_callback=progress_callback,
+    )
+
+    assert captured["progress_callback"] is progress_callback
 
 
 def test_empty_target_metric_selection_exports_no_rows() -> None:

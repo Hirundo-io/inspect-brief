@@ -5,6 +5,7 @@ import logging
 import os
 import stat
 import tempfile
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from typing import TypedDict, get_type_hints
@@ -12,6 +13,8 @@ from typing import TypedDict, get_type_hints
 from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
 logger = logging.getLogger(__name__)
+
+type ProgressCallback = Callable[[int, int, str], None]
 
 
 class InspectScore(TypedDict):
@@ -353,6 +356,8 @@ def prepare_results(
     export_jsons: bool = False,
     log_progress: bool = True,
     fail_on_log_error: bool = False,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[OutputEntry]:
     """Prepare the results of the evaluation for CSV export.
 
@@ -367,6 +372,8 @@ def prepare_results(
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
         log_progress: Whether to log progress while preparing results.
         fail_on_log_error: Whether to reject the results when any log fails to load.
+        progress_callback: Optional callback receiving completed task count, total task
+            count, and the current task name.
 
     Returns:
         The results of the evaluation for CSV export.
@@ -413,7 +420,7 @@ def prepare_results(
         )
     # Prepare the results for CSV export
     results: list[OutputEntry] = []
-    for log in logs:
+    for completed, log in enumerate(logs, start=1):
         task_target_metrics: list[InspectScore] | None = (
             target_metrics.get(log.eval.task) if target_metrics else None
         )
@@ -421,9 +428,11 @@ def prepare_results(
             prepare_log_results(
                 log,
                 task_target_metrics,
-                log_progress=log_progress,
+                log_progress=log_progress and progress_callback is None,
             ),
         )
+        if progress_callback is not None:
+            progress_callback(completed, len(logs), log.eval.task)
 
     return results
 
@@ -622,6 +631,8 @@ def export_results(
     export_jsons: bool = False,
     log_progress: bool = True,
     fail_on_log_error: bool = False,
+    *,
+    progress_callback: ProgressCallback | None = None,
 ) -> int:
     """Export the results of the evaluation to a CSV file.
 
@@ -639,6 +650,8 @@ def export_results(
         export_jsons (optional): Whether to export the Inspect logs as JSON files.
         log_progress: Whether to log detailed export progress.
         fail_on_log_error: Whether to reject the export when any log fails to load.
+        progress_callback: Optional callback receiving completed task count, total task
+            count, and the current task name.
 
     Returns:
         The number of result rows written to the CSV file.
@@ -681,6 +694,7 @@ def export_results(
             export_jsons=export_jsons,
             fail_on_log_error=fail_on_log_error,
             log_progress=log_progress,
+            progress_callback=progress_callback,
         )
     ]
     _write_csv_results(
