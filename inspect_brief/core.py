@@ -136,10 +136,12 @@ def _display_log_source(log_file: str) -> str:
     Returns:
         The original local path, or a URI without userinfo, query, or fragment.
     """
-    if not _is_log_uri(log_file):
-        return log_file
-
-    parsed = urlsplit(log_file)
+    try:
+        if not _is_log_uri(log_file):
+            return log_file
+        parsed = urlsplit(log_file)
+    except ValueError:
+        return "<invalid log source>"
     if "@" not in parsed.netloc and not parsed.query and not parsed.fragment:
         return log_file
     return urlunsplit(

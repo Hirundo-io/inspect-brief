@@ -250,6 +250,19 @@ def test_load_logs_skips_unresolvable_paths_and_continues(
     assert loaded == [str(valid)]
 
 
+def test_load_logs_skips_malformed_uris_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid = tmp_path / "valid.eval"
+    valid.touch()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_files=["https://[broken/run.eval", str(valid)]) == [str(valid)]
+    assert loaded == [str(valid)]
+
+
 def test_load_logs_rejects_non_eval_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
