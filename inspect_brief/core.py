@@ -7,8 +7,9 @@ import stat
 import tempfile
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TypedDict, get_type_hints
+from urllib.parse import urlsplit, urlunsplit
 
 from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
@@ -87,6 +88,56 @@ def _resolve_eval_log_path(log_file: str) -> Path:
     return path.resolve(strict=True)
 
 
+def _is_log_uri(log_file: str) -> bool:
+    """Return whether a log source uses an explicit filesystem URI scheme.
+
+    Args:
+        log_file: Log source supplied to the loader.
+
+    Returns:
+        True for sources such as ``s3://bucket/run.eval`` and ``file:///run.eval``.
+    """
+    return "://" in log_file and bool(urlsplit(log_file).scheme)
+
+
+def _eval_log_source_key(log_file: str) -> str | Path:
+    """Validate a log source and return its stable deduplication key.
+
+    Args:
+        log_file: Local path or filesystem URI supplied to the loader.
+
+    Returns:
+        The unchanged URI for remote/provider sources, or the canonical local path.
+
+    Raises:
+        ValueError: If the supplied source is not an `.eval` log.
+    """
+    if not _is_log_uri(log_file):
+        return _resolve_eval_log_path(log_file)
+
+    if PurePosixPath(urlsplit(log_file).path).suffix != ".eval":
+        raise ValueError("Inspect Brief currently supports only .eval log files")
+    return log_file
+
+
+def _json_sidecar_path(log_file: str) -> str | Path:
+    """Return the JSON sidecar location for a local path or filesystem URI.
+
+    Args:
+        log_file: Local path or filesystem URI for an Inspect evaluation log.
+
+    Returns:
+        A sibling location with a `.json` suffix.
+    """
+    if not _is_log_uri(log_file):
+        return Path(log_file).with_suffix(".json")
+
+    parsed = urlsplit(log_file)
+    return urlunsplit(
+        parsed._replace(path=str(PurePosixPath(parsed.path).with_suffix(".json"))),
+    )
+
+
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
     """Calculate runtime (in seconds) from ISO format timestamp strings.
 
@@ -143,23 +194,21 @@ def load_logs(
     if log_dir:
         paths.extend(_discover_log_paths(log_dir, load_errors))
     logs: list[EvalLog] = []
-    resolved_paths: set[Path] = set()
+    source_keys: set[str | Path] = set()
     for log_file in paths:
         try:
-            # Use canonical paths only as deduplication keys. Keeping the input path
-            # preserves its location for optional JSON sidecar exports.
-            resolved_path = _resolve_eval_log_path(log_file)
-            if resolved_path in resolved_paths:
+            # Canonicalize local paths for deduplication while preserving provider
+            # URIs so Inspect's fsspec-backed reader can handle them unchanged.
+            source_key = _eval_log_source_key(log_file)
+            if source_key in source_keys:
                 continue
-            resolved_paths.add(resolved_path)
+            source_keys.add(source_key)
             log = read_eval_log(log_file)
             logs.append(log)
             if export_jsons:
                 logger.info("📝 Exporting Inspect log %s as JSON", log_file)
                 try:
-                    write_eval_log(
-                        log, Path(log_file).with_suffix(".json"), format="json"
-                    )
+                    write_eval_log(log, _json_sidecar_path(log_file), format="json")
                 except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
                     logger.warning("❌ Could not export Inspect log %s", log_file)
         # Inspect log readers and storage backends may raise provider-specific

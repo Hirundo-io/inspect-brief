@@ -132,6 +132,34 @@ def test_load_logs_deduplicates_equivalent_paths(
     assert loaded == ["run.eval"]
 
 
+def test_load_logs_preserves_and_deduplicates_remote_uris(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_uri = "s3://inspect-logs/run.eval"
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_files=[log_uri, log_uri]) == [log_uri]
+    assert loaded == [log_uri]
+
+
+def test_load_logs_exports_json_beside_remote_log(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_uri = "s3://inspect-logs/run.eval"
+    exported: list[str | Path] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda log, path, **_: exported.append(path),
+    )
+
+    load_logs(log_files=log_uri, export_jsons=True)
+
+    assert exported == ["s3://inspect-logs/run.json"]
+
+
 def test_load_logs_skips_unresolvable_paths_and_continues(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
