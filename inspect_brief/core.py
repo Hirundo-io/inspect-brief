@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Protocol, TypedDict, get_type_hints
 from urllib.parse import urlsplit, urlunsplit
+from urllib.request import url2pathname
 
 from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
@@ -99,15 +100,31 @@ def _resolve_eval_log_path(log_file: str) -> Path:
 
 
 def _is_log_uri(log_file: str) -> bool:
-    """Return whether a log source uses an explicit filesystem URI scheme.
+    """Return whether a log source uses an explicit URI or provider scheme.
 
     Args:
         log_file: Log source supplied to the loader.
 
     Returns:
-        True for sources such as ``s3://bucket/run.eval`` and ``file:///run.eval``.
+        True for sources such as ``s3://bucket/run.eval``, ``file:/run.eval``,
+        and ``file:///run.eval``.
     """
-    return "://" in log_file and bool(urlsplit(log_file).scheme)
+    scheme = urlsplit(log_file).scheme
+    return bool(scheme) and (scheme == "file" or "://" in log_file)
+
+
+def _resolve_file_uri_path(log_file: str) -> Path:
+    """Resolve a local ``file:`` URI to its canonical filesystem path.
+
+    Args:
+        log_file: Local file URI supplied to the log loader.
+
+    Returns:
+        The canonical path to the referenced `.eval` log.
+    """
+    parsed = urlsplit(log_file)
+    authority = "" if parsed.netloc in {"", "localhost"} else f"//{parsed.netloc}"
+    return _resolve_eval_log_path(url2pathname(f"{authority}{parsed.path}"))
 
 
 def _eval_log_source_key(log_file: str) -> str | Path:
@@ -122,12 +139,15 @@ def _eval_log_source_key(log_file: str) -> str | Path:
     Raises:
         ValueError: If the supplied source is not an `.eval` log.
     """
-    if not _is_log_uri(log_file):
-        return _resolve_eval_log_path(log_file)
+    if _is_log_uri(log_file):
+        parsed = urlsplit(log_file)
+        if PurePosixPath(parsed.path).suffix != ".eval":
+            raise ValueError("Inspect Brief currently supports only .eval log files")
+        if parsed.scheme == "file":
+            return _resolve_file_uri_path(log_file)
+        return log_file
 
-    if PurePosixPath(urlsplit(log_file).path).suffix != ".eval":
-        raise ValueError("Inspect Brief currently supports only .eval log files")
-    return log_file
+    return _resolve_eval_log_path(log_file)
 
 
 def _json_sidecar_path(log_file: str) -> str | Path:
@@ -139,13 +159,13 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     Returns:
         A sibling location with a `.json` suffix.
     """
-    if not _is_log_uri(log_file):
-        return Path(log_file).with_suffix(".json")
+    if _is_log_uri(log_file):
+        parsed = urlsplit(log_file)
+        return urlunsplit(
+            parsed._replace(path=str(PurePosixPath(parsed.path).with_suffix(".json"))),
+        )
 
-    parsed = urlsplit(log_file)
-    return urlunsplit(
-        parsed._replace(path=str(PurePosixPath(parsed.path).with_suffix(".json"))),
-    )
+    return Path(log_file).with_suffix(".json")
 
 
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
@@ -213,7 +233,7 @@ def load_logs(
             if source_key in source_keys:
                 continue
             source_keys.add(source_key)
-            read_source = log_file if isinstance(source_key, str) else str(source_key)
+            read_source = log_file if _is_log_uri(log_file) else str(source_key)
             log = read_eval_log(read_source)
             logs.append(log)
             if export_jsons:

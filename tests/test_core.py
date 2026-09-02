@@ -132,6 +132,22 @@ def test_load_logs_deduplicates_equivalent_paths(
     assert loaded == [str(log_path)]
 
 
+def test_load_logs_deduplicates_file_uris_and_local_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    single_slash_uri = f"file:{log_path}"
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(
+        log_files=[single_slash_uri, log_path.as_uri(), str(log_path)]
+    ) == [single_slash_uri]
+    assert loaded == [single_slash_uri]
+
+
 def test_load_logs_preserves_and_deduplicates_remote_uris(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
