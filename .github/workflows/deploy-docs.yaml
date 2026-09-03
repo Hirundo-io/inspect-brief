@@ -11,14 +11,21 @@ jobs:
     name: Classify the release tag
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Reads only the tag name, so it needs no permissions, no checkout, and no
-    # project or dependency code. This keeps prerelease tags away from the
-    # `github-pages` environment and its credentials entirely.
-    permissions: {}
+    # Reads the tag name and `pyproject.toml` only. It installs nothing and runs
+    # no project or dependency code, and it never holds the deploy credentials,
+    # so an unapproved tag cannot reach the `github-pages` environment.
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.release.outputs.version }}
       publish: ${{ steps.release.outputs.publish }}
     steps:
+      - name: Checkout packaging metadata
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: pyproject.toml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
       - name: Read version from the release tag
         id: release
         env:
@@ -37,6 +44,13 @@ jobs:
             echo "::notice::$TAG_NAME is a prerelease; skipping documentation deployment."
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          # Fail closed when the tag disagrees with the packaged version, so a
+          # tag pointing at an unintended commit cannot publish as that release.
+          declared="$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml | head -1)"
+          if [[ "$declared" != "$version" ]]; then
+            echo "Tag $TAG_NAME does not match the packaged version $declared."
+            exit 1
           fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
@@ -84,6 +98,19 @@ jobs:
             echo "Expected generated documentation at $version_dir"
             exit 1
           fi
+          # Point the root at the highest stable release rather than this run's
+          # version, so re-running an older tag cannot send the root backward.
+          latest="$(git tag --list 'v*' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V \
+            | tail -1)"
+          latest="${latest#v}"
+          if [ -z "$latest" ]; then
+            echo "No stable release tag found."
+            exit 1
+          fi
+          echo "::notice::Root redirect points at v${latest}."
+          PACKAGE_VERSION="$latest"
           cat > docs/_build/html/index.html <<HTML
           <!doctype html>
           <html lang="en">
