@@ -14,22 +14,17 @@ Generate standardized concise metric summaries from [Inspect AI](https://inspect
 - Skip runs already present in the CSV via `--skip-existing`
 - Optionally export each task automatically through an Inspect Hook
 
-## Development installation
-
-The commands below install the project from a local repository checkout. Run
-them from the repository root:
+## Installation
 
 ```bash
-uv venv .venv
-source .venv/bin/activate
-uv sync
+uv add inspect-brief
 ```
 
-Developers working from the repository root can also invoke the package directly:
+Installing the package provides the `inspect-brief` command and registers the
+Inspect extension entry point.
 
-```bash
-python -m inspect_brief [OPTIONS]
-```
+For local development from a repository checkout, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Choose a workflow
 
@@ -210,4 +205,5 @@ Results are appended to the CSV. Columns:
 
 ## Contributing
 
-See [`AGENTS.md`](AGENTS.md) for project guidelines.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for local setup, verification steps,
+and pull-request expectations.

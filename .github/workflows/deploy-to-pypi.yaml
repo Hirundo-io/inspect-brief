@@ -59,7 +59,7 @@ jobs:
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
       - name: Test wheel installation and entry points
         run: |
-          uv venv --python 3.12 /tmp/inspect-brief-release-venv
+          uv venv /tmp/inspect-brief-release-venv
           uv export \
             --frozen \
             --no-dev \
@@ -79,7 +79,7 @@ jobs:
           /tmp/inspect-brief-release-venv/bin/inspect-brief --help
       - name: Test source distribution installation and entry points
         run: |
-          uv venv --python 3.12 /tmp/inspect-brief-sdist-venv
+          uv venv /tmp/inspect-brief-sdist-venv
           uv pip install \
             --python /tmp/inspect-brief-sdist-venv/bin/python \
             --require-hashes \

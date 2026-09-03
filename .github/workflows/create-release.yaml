@@ -38,7 +38,6 @@ jobs:
         with:
           enable-cache: true
           cache-dependency-glob: uv.lock
-          python-version: "3.12"
       - name: Validate and prepare release files
         id: release
         env:
