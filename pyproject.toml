@@ -40,6 +40,9 @@ dev = [
   "types-tqdm",
 ]
 docs = ["sphinx>=8.0.0"]
+# Mirrors `build-system.requires` so `uv export --only-group build` can produce
+# hash-pinned build constraints from `uv.lock`; keep the two lists in sync.
+build = ["setuptools>=64", "wheel"]
 
 [tool.uv.sources]
 inspect-brief = { path = ".", editable = true }
