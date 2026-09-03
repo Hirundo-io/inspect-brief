@@ -29,6 +29,9 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha }}
+          # `sphinx-multiversion` reads documentation from every release tag, so
+          # the full history and all tags must be present.
+          fetch-depth: 0
           persist-credentials: false
       - name: Install uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -37,10 +40,50 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install documentation dependencies
         run: uv sync --locked --group docs
-      - name: Build documentation
+      - name: Read package version
+        id: package
+        run: echo "version=$(uv version --short --no-sync)" >> "$GITHUB_OUTPUT"
+      - name: Wait for the release tag
+        # `deploy-to-pypi.yaml` tags the release commit on this same event, so the
+        # tag may not exist yet when this job starts.
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          tag="v${PACKAGE_VERSION}"
+          for attempt in $(seq 1 40); do
+            if git ls-remote --exit-code --tags origin "$tag" >/dev/null 2>&1; then
+              git fetch --tags --force origin
+              break
+            fi
+            echo "Tag $tag not published yet; retrying in 15s ($attempt/40)"
+            sleep 15
+          done
+          if ! git rev-parse --verify --quiet "refs/tags/$tag" >/dev/null; then
+            echo "Tag $tag was not available after waiting."
+            exit 1
+          fi
+      - name: Build versioned documentation
         env:
           TZ: UTC
-        run: uv run sphinx-build -W -b html docs docs/_build/html
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          uv run sphinx-multiversion docs docs/_build/html
+          version_dir="docs/_build/html/v${PACKAGE_VERSION}"
+          if [ ! -d "$version_dir" ]; then
+            echo "Expected generated documentation at $version_dir"
+            exit 1
+          fi
+          cat > docs/_build/html/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <title>Redirecting to the latest release</title>
+              <meta http-equiv="refresh" content="0; url=./v${PACKAGE_VERSION}/index.html" />
+              <link rel="canonical" href="https://hirundo-io.github.io/inspect-brief/v${PACKAGE_VERSION}/index.html" />
+            </head>
+          </html>
+          HTML
       - name: Configure Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Upload Pages artifact

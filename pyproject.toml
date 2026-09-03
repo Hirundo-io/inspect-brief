@@ -39,7 +39,9 @@ dev = [
   "pyrefly>=0.63.1",
   "types-tqdm",
 ]
-docs = ["sphinx>=8.0.0"]
+# `sphinx-multiversion` 0.2.4 calls `Config.read()` with the pre-Sphinx 9
+# signature, so the docs build is held below Sphinx 9.
+docs = ["sphinx>=8.0.0,<9", "furo", "sphinx-multiversion"]
 # Mirrors `build-system.requires` so `uv export --only-group build` can produce
 # hash-pinned build constraints from `uv.lock`; keep the two lists in sync.
 build = ["setuptools>=64", "wheel"]

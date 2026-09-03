@@ -121,7 +121,7 @@ inspect-brief [OPTIONS]
 | --- | --- |
 | `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files and combines them with `--log-files` when both are supplied |
 | `--log-files` | One or more explicit `.eval` paths or filesystem URIs (repeatable or comma-separated); combines them with logs found by `--log-dir` when both are supplied |
-| `--tasks` | Tasks to include (comma-separated); others are skipped |
+| `--tasks` | Tasks to include (repeatable or comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
 | `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |
 | `--skip-existing` | Skip task runs whose Run ID is already in the CSV |
