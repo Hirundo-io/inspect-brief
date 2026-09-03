@@ -43,8 +43,8 @@ def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
                     metrics={
                         "accuracy": EvalMetric(name="accuracy", value=accuracy),
                     },
-                )
-            ]
+                ),
+            ],
         ),
         stats=EvalStats(
             started_at="2026-08-26T12:00:00+00:00",
@@ -143,7 +143,7 @@ def test_load_logs_deduplicates_file_uris_and_local_path(
     monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
 
     assert load_logs(
-        log_files=[single_slash_uri, log_path.as_uri(), str(log_path)]
+        log_files=[single_slash_uri, log_path.as_uri(), str(log_path)],
     ) == [str(log_path)]
     assert loaded == [str(log_path)]
 

@@ -89,8 +89,8 @@ def test_parse_target_metrics_reads_json_file(tmp_path: Path) -> None:
                 "is_percentage": False,
                 "is_higher_better": True,
                 "is_normalized": False,
-            }
-        ]
+            },
+        ],
     }
 
 
@@ -143,7 +143,7 @@ def test_parse_target_metrics_rejects_duplicate_output_labels() -> None:
                             "is_higher_better": True,
                             "is_normalized": True,
                         },
-                    ]
-                }
-            )
+                    ],
+                },
+            ),
         )

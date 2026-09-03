@@ -66,8 +66,8 @@ def test_cli_parses_options_and_exports_results(
                     "is_percentage": False,
                     "is_higher_better": True,
                     "is_normalized": False,
-                }
-            ]
+                },
+            ],
         },
         "csv_path": str(csv_path),
         "skip_existing": True,

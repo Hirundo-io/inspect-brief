@@ -75,6 +75,7 @@ select = [
   "C4",
   "DTZ",
   "T10",
+  "TID",
   "LOG",
   "T20",
   "PT",
@@ -94,7 +95,7 @@ select = [
   "DOC",
 ]
 preview = true
-ignore = ["missing-trailing-comma", "non-lowercase-variable-in-function"]
+ignore = ["non-lowercase-variable-in-function"]
 
 fixable = ["ALL"]
 

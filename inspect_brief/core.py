@@ -61,7 +61,8 @@ OutputEntry = TypedDict(
 
 
 def _discover_log_paths(
-    log_dir: str, load_errors: list[tuple[str, Exception]]
+    log_dir: str,
+    load_errors: list[tuple[str, Exception]],
 ) -> list[str]:
     """Recursively discover evaluation-log paths while recording scan failures.
 
@@ -145,7 +146,7 @@ def _display_log_source(log_file: str) -> str:
     if "@" not in parsed.netloc and not parsed.query and not parsed.fragment:
         return log_file
     return urlunsplit(
-        parsed._replace(netloc=parsed.netloc.rpartition("@")[2], query="", fragment="")
+        parsed._replace(netloc=parsed.netloc.rpartition("@")[2], query="", fragment=""),
     )
 
 
@@ -306,14 +307,16 @@ def load_logs(
         except Exception as error:  # ruff: ignore[blind-except]
             error = _redact_log_error(log_file, error)
             logger.warning(
-                "❌ Could not load Inspect log %s: %s", display_source, error
+                "❌ Could not load Inspect log %s: %s",
+                display_source,
+                error,
             )
             load_errors.append((display_source, error))
 
     if load_errors and fail_on_error:
         failed_paths = ", ".join(path for path, _ in load_errors)
         raise ValueError(
-            f"Could not load {len(load_errors)} Inspect log(s): {failed_paths}"
+            f"Could not load {len(load_errors)} Inspect log(s): {failed_paths}",
         ) from load_errors[0][1]
 
     return logs
@@ -337,7 +340,8 @@ def target_metric_name(target_metric: InspectScore) -> str:
 
 
 def failed_score_values(
-    status: str, target_metrics: list[InspectScore] | None
+    status: str,
+    target_metrics: list[InspectScore] | None,
 ) -> dict[str, float | str]:
     """Create CSV score values for an evaluation that did not succeed.
 
@@ -382,7 +386,8 @@ def all_score_values(scores: list[EvalScore]) -> dict[str, float | str]:
 
 
 def target_score_values(
-    scores: list[EvalScore], target_metrics: list[InspectScore]
+    scores: list[EvalScore],
+    target_metrics: list[InspectScore],
 ) -> dict[str, float | str]:
     """Extract configured metric values from Inspect scorer results.
 
@@ -413,7 +418,8 @@ def target_score_values(
 
 
 def score_values(
-    log: EvalLog, target_metrics: list[InspectScore] | None
+    log: EvalLog,
+    target_metrics: list[InspectScore] | None,
 ) -> dict[str, float | str]:
     """Select score values for an Inspect evaluation log.
 
@@ -613,14 +619,14 @@ def inspect_existing_results(
                 existing_rows = list(reader)
                 if any(None in row for row in existing_rows):
                     raise ValueError(
-                        "Existing CSV contains rows with more values than its header"
+                        "Existing CSV contains rows with more values than its header",
                     )
             should_write_header = existing_fieldnames != fieldnames
 
         return fieldnames, existing_fieldnames, existing_rows, should_write_header
     except (OSError, ValueError, csv.Error) as error:
         raise ValueError(
-            f"Failed to inspect existing results at {csv_path}: {error}"
+            f"Failed to inspect existing results at {csv_path}: {error}",
         ) from error
 
 
@@ -657,7 +663,8 @@ def format_output_row(row: OutputEntry) -> dict[str, object]:
 
 
 def _normalized_existing_rows(
-    existing_rows: list[dict[str, str]], fieldnames: list[str]
+    existing_rows: list[dict[str, str]],
+    fieldnames: list[str],
 ) -> list[dict[str, object]]:
     """Normalize existing CSV rows to a migrated schema.
 
@@ -671,7 +678,7 @@ def _normalized_existing_rows(
     return [
         {
             fieldname: sanitize_csv_value(
-                row.get(fieldname, "N/A") if row.get(fieldname) is not None else "N/A"
+                row.get(fieldname, "N/A") if row.get(fieldname) is not None else "N/A",
             )
             for fieldname in fieldnames
         }
@@ -707,7 +714,9 @@ def _rewrite_csv_atomically(
         ) as temporary_file:
             temporary_path = Path(temporary_file.name)
             writer = csv.DictWriter(
-                temporary_file, fieldnames=fieldnames, restval="N/A"
+                temporary_file,
+                fieldnames=fieldnames,
+                restval="N/A",
             )
             writer.writeheader()
             writer.writerows(existing_rows)
@@ -815,11 +824,11 @@ def export_results(
     )
     if skip_existing and existing_rows and "Run ID" not in existing_fieldnames:
         raise ValueError(
-            "Cannot skip existing results: the existing CSV has no 'Run ID' column"
+            "Cannot skip existing results: the existing CSV has no 'Run ID' column",
         )
     if skip_existing and any(not row.get("Run ID") for row in existing_rows):
         raise ValueError(
-            "Cannot skip existing results: an existing CSV row has no Run ID"
+            "Cannot skip existing results: an existing CSV row has no Run ID",
         )
     task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
     if log_progress:

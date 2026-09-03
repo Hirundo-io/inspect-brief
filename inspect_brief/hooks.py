@@ -102,7 +102,8 @@ class InspectBriefHooks(Hooks):
             return
 
         task_count, failed_task_count, result_count, _ = self._run_summaries.get(
-            data.run_id, (0, 0, 0, csv_path)
+            data.run_id,
+            (0, 0, 0, csv_path),
         )
         self._run_summaries[data.run_id] = (
             task_count + 1,
@@ -124,7 +125,8 @@ class InspectBriefHooks(Hooks):
 
         """
         task_count, failed_task_count, row_count, csv_path = self._run_summaries.pop(
-            data.run_id, (0, 0, 0, "N/A")
+            data.run_id,
+            (0, 0, 0, "N/A"),
         )
         if task_count:
             logger.info(

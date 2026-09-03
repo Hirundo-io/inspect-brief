@@ -174,8 +174,8 @@ def test_hook_parses_environment_configuration(
                 "is_percentage": False,
                 "is_higher_better": True,
                 "is_normalized": False,
-            }
-        ]
+            },
+        ],
     }
 
 

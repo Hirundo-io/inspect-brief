@@ -34,7 +34,7 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
     if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
         raise ValueError(
             f"Metric {index} for task '{task}' must be an object with exactly "
-            f"keys {sorted(_INSPECT_SCORE_KEYS)}"
+            f"keys {sorted(_INSPECT_SCORE_KEYS)}",
         )
     if not isinstance(metric["name"], str):
         raise ValueError(f"Metric {index} for task '{task}' must have a string name")
@@ -45,7 +45,7 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
     if invalid_boolean_keys:
         raise ValueError(
             f"Metric {index} for task '{task}' must use JSON booleans for "
-            f"{sorted(invalid_boolean_keys)}"
+            f"{sorted(invalid_boolean_keys)}",
         )
     return InspectScore(
         name=metric["name"],
@@ -151,20 +151,20 @@ def parse_target_metrics(
         raise ValueError(
             f"{source} {input_description} is not valid JSON. Expected a JSON "
             "object mapping task names to InspectScore objects with keys "
-            f"{sorted(_INSPECT_SCORE_KEYS)}"
+            f"{sorted(_INSPECT_SCORE_KEYS)}",
         ) from error
 
     if not isinstance(parsed, dict):
         raise ValueError(
             f"{source} {input_description} must be a JSON object mapping task "
-            "names to lists of metrics"
+            "names to lists of metrics",
         )
 
     result: dict[str, list[InspectScore]] = {}
     for task, metrics in parsed.items():
         if not isinstance(task, str) or not isinstance(metrics, list):
             raise ValueError(
-                f"Task '{task}' must map to a list of InspectScore objects"
+                f"Task '{task}' must map to a list of InspectScore objects",
             )
         scores: list[InspectScore] = []
         metric_labels: dict[str, int] = {}
@@ -174,7 +174,7 @@ def parse_target_metrics(
             if label in metric_labels:
                 raise ValueError(
                     f"Metric {index} for task '{task}' duplicates the output label "
-                    f"of metric {metric_labels[label]}: {label!r}"
+                    f"of metric {metric_labels[label]}: {label!r}",
                 )
             metric_labels[label] = index
             scores.append(score)
