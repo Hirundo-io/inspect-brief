@@ -77,6 +77,43 @@ def test_cli_parses_options_and_exports_results(
 
 
 @pytest.mark.parametrize(
+    ("option_values", "expected_tasks"),
+    [
+        pytest.param(["task-a"], ["task-a"], id="single"),
+        pytest.param(["task-a", "task-b"], ["task-a", "task-b"], id="repeated"),
+        pytest.param(
+            ["task-a,task-b", " task-c "],
+            ["task-a", "task-b", "task-c"],
+            id="mixed",
+        ),
+    ],
+)
+def test_cli_accepts_repeatable_and_comma_separated_tasks(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    option_values: list[str],
+    expected_tasks: list[str],
+) -> None:
+    exported: dict[str, object] = {}
+    log_file = tmp_path / "first.eval"
+    log_file.touch()
+
+    monkeypatch.setattr(cli, "configure_logging", lambda: None)
+    monkeypatch.setattr(
+        cli,
+        "export_results",
+        lambda **kwargs: exported.update(kwargs) or 0,
+    )
+    arguments = ["--log-files", str(log_file)]
+    arguments += [item for value in option_values for item in ("--tasks", value)]
+
+    result = CliRunner().invoke(cli.app, arguments)
+
+    assert result.exit_code == 0
+    assert exported["tasks"] == expected_tasks
+
+
+@pytest.mark.parametrize(
     ("option_values", "expected_names"),
     [
         pytest.param(["first.eval"], ["first.eval"], id="single"),

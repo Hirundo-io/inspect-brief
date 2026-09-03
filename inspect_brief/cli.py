@@ -118,10 +118,14 @@ def main(
         ),
     ] = None,
     tasks: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
             "--tasks",
-            help="The tasks to include in the results (comma-separated)",
+            metavar="TASK[,TASK...]",
+            help=(
+                "The tasks to include in the results; repeat the option or "
+                "separate task names with commas"
+            ),
         ),
     ] = None,
     # This remains a string because the value can be inline JSON or a file path;
@@ -185,7 +189,14 @@ def main(
                 total_log_count: int,
                 current_task_name: str,
             ) -> None:
-                """Update the standalone CLI progress display."""
+                """Update the standalone CLI progress display.
+
+                Args:
+                    completed_log_count: Number of logs processed so far.
+                    total_log_count: Total number of logs to process.
+                    current_task_name: Name of the task being processed.
+
+                """
                 progress.total = total_log_count
                 progress.set_postfix_str(
                     sanitize_terminal_text(current_task_name),
