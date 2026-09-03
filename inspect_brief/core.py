@@ -645,6 +645,21 @@ def sanitize_csv_value(value: object) -> object:
     return value
 
 
+def desanitize_csv_value(value: str) -> str:
+    """Recover the identity of a CSV cell written by `sanitize_csv_value`.
+
+    Args:
+        value: A CSV cell value as stored on disk.
+
+    Returns:
+        The value without the apostrophe that `sanitize_csv_value` prepends to
+        spreadsheet formula markers.
+    """
+    if value.startswith("'") and value[1:2] in {"=", "+", "-", "@"}:
+        return value[1:]
+    return value
+
+
 def format_output_row(row: OutputEntry) -> dict[str, object]:
     """Format an output row for stable CSV presentation.
 
@@ -830,7 +845,13 @@ def export_results(
         raise ValueError(
             "Cannot skip existing results: an existing CSV row has no Run ID",
         )
-    task_ids_to_skip = [row["Run ID"] for row in existing_rows] if skip_existing else []
+    # Stored Run IDs carry the sanitization applied on write, so compare identity
+    # rather than the display value.
+    task_ids_to_skip = (
+        [desanitize_csv_value(row["Run ID"]) for row in existing_rows]
+        if skip_existing
+        else []
+    )
     if log_progress:
         logger.info("⏭️ Skipping runs with existing Run IDs: %s", set(task_ids_to_skip))
     # Prepare the results for CSV export

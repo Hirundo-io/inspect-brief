@@ -81,9 +81,19 @@ def test_export_results_filters_tasks(tmp_path: Path) -> None:
     assert all("task-c" not in row for row in rows)
 
 
-def test_export_results_skips_existing_run_ids(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "run_id",
+    [
+        pytest.param("run-a", id="plain"),
+        pytest.param("=run-1", id="equals"),
+        pytest.param("+run-2", id="plus"),
+        pytest.param("-run-3", id="minus"),
+        pytest.param("@run-4", id="at"),
+    ],
+)
+def test_export_results_skips_existing_run_ids(tmp_path: Path, run_id: str) -> None:
     csv_path = tmp_path / "brief.csv"
-    log = evaluation_log("task-a", "run-a", 1.0)
+    log = evaluation_log("task-a", run_id, 1.0)
 
     assert export_results(logs=[log], csv_path=str(csv_path), log_progress=False) == 1
     assert (

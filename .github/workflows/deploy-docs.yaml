@@ -46,8 +46,18 @@ jobs:
             echo "Tag $TAG_NAME does not name a PEP 440 release."
             exit 1
           fi
+          # Only final releases are published. `smv_tag_whitelist` matches finals
+          # only, so a prerelease would generate no directory, and the published
+          # root redirect must point at the latest stable version.
+          if [[ "$version" =~ (a|b|rc)[0-9]+$ ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::$TAG_NAME is a prerelease; skipping documentation deployment."
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
           echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Build versioned documentation
+        if: steps.release.outputs.prerelease != 'true'
         env:
           TZ: UTC
           PACKAGE_VERSION: ${{ steps.release.outputs.version }}
@@ -70,11 +80,14 @@ jobs:
           </html>
           HTML
       - name: Configure Pages
+        if: steps.release.outputs.prerelease != 'true'
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       - name: Upload Pages artifact
+        if: steps.release.outputs.prerelease != 'true'
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: docs/_build/html
       - name: Deploy to GitHub Pages
+        if: steps.release.outputs.prerelease != 'true'
         id: deployment
         uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
