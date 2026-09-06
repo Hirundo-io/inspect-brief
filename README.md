@@ -16,12 +16,24 @@ Generate standardized concise metric summaries from [Inspect AI](https://inspect
 
 ## Installation
 
+With `uv`:
+
 ```bash
 uv add inspect-brief
 ```
 
+Or with `pip`:
+
+```bash
+pip install inspect-brief
+```
+
 Installing the package provides the `inspect-brief` command and registers the
 Inspect extension entry point.
+
+For one-off use, `uvx` can run either workflow without adding Inspect Brief to
+the current project. The workflow sections below show the corresponding
+commands.
 
 For local development from a repository checkout, see
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
@@ -68,8 +80,21 @@ INSPECT_BRIEF_SKIP_EXISTING=true
 
 ### 2. Run Inspect normally
 
+When Inspect Brief is installed in the project, run Inspect normally:
+
 ```bash
 inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
+```
+
+For a one-off run, start Inspect with Inspect Brief included in its isolated
+tool environment. Every package the run needs must be named explicitly, including
+the one that provides the task. The example inlines the output path so the
+command stands on its own:
+
+```bash
+INSPECT_BRIEF_CSV_PATH=results/brief_results.csv \
+  uvx --from inspect-ai --with inspect-brief --with inspect-evals \
+  inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
 ```
 
 After every task completes, the hook appends the selected metric rows to the CSV
@@ -113,6 +138,12 @@ After installation, invoke the console script:
 
 ```bash
 inspect-brief [OPTIONS]
+```
+
+Or run the CLI directly without adding it to the current project:
+
+```bash
+uvx inspect-brief [OPTIONS]
 ```
 
 ### CLI options

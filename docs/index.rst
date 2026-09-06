@@ -13,12 +13,23 @@ a CSV.
 Installation
 ------------
 
+With ``uv``:
+
 .. code-block:: bash
 
    uv add inspect-brief
 
+Or with ``pip``:
+
+.. code-block:: bash
+
+   pip install inspect-brief
+
 Installing the package provides the ``inspect-brief`` command and registers the
 Inspect extension entry point.
+
+For one-off use, ``uvx`` can run either workflow without adding Inspect Brief
+to the current project.
 
 Choose a workflow
 -----------------
@@ -33,14 +44,27 @@ Inspect Brief can run in two separate ways:
 Automatic export with the Inspect Hook
 --------------------------------------
 
-The hook is opt-in and reads its configuration from the environment. Set the
-output CSV to enable it:
+The hook is opt-in and reads its configuration from the environment. When
+Inspect Brief is installed in the project, export the output path and run
+Inspect normally:
 
 .. code-block:: bash
 
-   INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
+   export INSPECT_BRIEF_CSV_PATH=results/brief_results.csv
+   inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
 
-Then run Inspect normally; each completed task appends a row.
+For a one-off run, include Inspect Brief in Inspect's isolated tool environment
+and set the hook output path for that command. Every package the run needs must
+be named explicitly, including the one that provides the task:
+
+.. code-block:: bash
+
+   INSPECT_BRIEF_CSV_PATH=results/brief_results.csv \
+     uvx --from inspect-ai --with inspect-brief --with inspect-evals \
+     inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
+
+In either form, each completed task appends its summary rows to the configured
+CSV.
 
 Manual export with the CLI
 --------------------------
@@ -56,6 +80,12 @@ At least one of ``--log-dir`` or ``--log-files`` is required:
 .. code-block:: bash
 
    inspect-brief [OPTIONS]
+
+For a one-off export without adding Inspect Brief to the current project:
+
+.. code-block:: bash
+
+   uvx inspect-brief [OPTIONS]
 
 CLI options
 ~~~~~~~~~~~
