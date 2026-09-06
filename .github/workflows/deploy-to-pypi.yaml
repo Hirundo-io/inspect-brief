@@ -234,8 +234,13 @@ jobs:
           # Read the declared version with a TOML parser rather than a line
           # regex: quote style and spacing are free in TOML, and a missed match
           # would drop that release from the Pages artifact, which replaces the
-          # whole published tree.
-          read_version='import sys, tomllib; print(tomllib.load(sys.stdin.buffer).get("project", {}).get("version", ""))'
+          # whole published tree. A tagged version is file content from an
+          # arbitrary commit and TOML decodes escapes, so a value carrying
+          # control characters is reported as absent rather than echoed into
+          # the workflow command below, where a newline would forge one.
+          read_version='import sys, tomllib
+          version = tomllib.load(sys.stdin.buffer).get("project", {}).get("version", "")
+          print(version if isinstance(version, str) and version.isprintable() else "")'
           mainline="$(git rev-list --first-parent HEAD)"
           trusted=()
           while read -r tag; do
