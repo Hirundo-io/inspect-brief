@@ -221,26 +221,68 @@ jobs:
           enable-cache: false
       - name: Install documentation dependencies
         run: uv sync --locked --group docs
+      - name: Select trusted release tags
+        id: release_tags
+        env:
+          PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
+        run: |
+          # `sphinx-multiversion` checks out every selected tag and executes its
+          # `docs/conf.py` and package code inside this Pages-write job, so only
+          # build tags that sit on the reviewed first-parent release history and
+          # declare their own version. Untrusted tags are skipped rather than
+          # failing the release, because release tags cannot be deleted.
+          mainline="$(git rev-list --first-parent HEAD)"
+          trusted=()
+          while read -r tag; do
+            commit="$(git rev-parse "${tag}^{commit}")"
+            declared="$(
+              git show "${commit}:pyproject.toml" 2>/dev/null \
+                | sed -n 's/^version = "\(.*\)"$/\1/p' \
+                | head -1
+            )"
+            if ! grep -qxF "$commit" <<< "$mainline"; then
+              echo "::warning::Skipping $tag: not on the release history."
+            elif [ "$declared" != "${tag#v}" ]; then
+              echo "::warning::Skipping $tag: declares version '$declared'."
+            else
+              trusted+=("$tag")
+            fi
+          done < <(
+            git tag --list 'v*' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V
+          )
+
+          if [[ " ${trusted[*]} " != *" v${PACKAGE_VERSION} "* ]]; then
+            echo "Release tag v${PACKAGE_VERSION} is not a trusted release tag."
+            exit 1
+          fi
+
+          escaped=("${trusted[@]//./\\.}")
+          {
+            echo "tag_pattern=^($(IFS='|'; echo "${escaped[*]}"))$"
+            echo "latest_version=${trusted[${#trusted[@]} - 1]#v}"
+          } >> "$GITHUB_OUTPUT"
       - name: Build versioned documentation
         env:
           TZ: UTC
           PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
+          TAG_PATTERN: ${{ steps.release_tags.outputs.tag_pattern }}
+          LATEST_VERSION: ${{ steps.release_tags.outputs.latest_version }}
         run: |
-          uv run sphinx-multiversion docs docs/_build/html
+          uv run sphinx-multiversion -D "smv_tag_whitelist=$TAG_PATTERN" \
+            docs docs/_build/html
           version_dir="docs/_build/html/v${PACKAGE_VERSION}"
           if [ ! -d "$version_dir" ]; then
             echo "Expected generated documentation at $version_dir"
             exit 1
           fi
-          # Point the root at the highest stable release rather than this run's
+          # Point the root at the highest trusted release rather than this run's
           # version, so re-running an older release cannot send the root backward.
-          latest="$(git tag --list 'v*' \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | sort -V \
-            | tail -1)"
-          latest="${latest#v}"
-          if [ -z "$latest" ]; then
-            echo "No stable release tag found."
+          latest="$LATEST_VERSION"
+          latest_index="docs/_build/html/v${latest}/index.html"
+          if [ ! -f "$latest_index" ]; then
+            echo "Expected latest stable documentation at $latest_index"
             exit 1
           fi
           echo "::notice::Root redirect points at v${latest}."
