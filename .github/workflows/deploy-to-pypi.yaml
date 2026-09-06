@@ -1,0 +1,318 @@
+name: Publish package to PyPI
+
+on:
+  pull_request:
+    types: [closed]
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build_and_verify:
+    name: Build and verify distributions
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == github.event.repository.default_branch &&
+      ((contains(github.event.pull_request.labels.*.name, 'release') &&
+      !contains(github.event.pull_request.labels.*.name, 'test')) ||
+      (contains(github.event.pull_request.labels.*.name, 'test') &&
+      !contains(github.event.pull_request.labels.*.name, 'release')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      artifact_digest: ${{ steps.distributions.outputs.artifact_digest }}
+      package_version: ${{ steps.package.outputs.version }}
+      publish_docs: ${{ steps.package.outputs.publish_docs }}
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout merged release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          enable-cache: false
+      - name: Audit resolved dependencies
+        run: uv audit --frozen --preview-features audit-command
+      - name: Read and validate package version
+        id: package
+        run: |
+          package_version="$(uv version --short --no-sync)"
+          if [[ ! "$package_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+((a|b|rc)[0-9]+)?$ ]]; then
+            echo "Invalid package version: $package_version"
+            exit 1
+          fi
+          echo "version=$package_version" >> "$GITHUB_OUTPUT"
+          if [[ "$package_version" =~ (a|b|rc)[0-9]+$ ]]; then
+            echo "publish_docs=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish_docs=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Export the locked build constraints
+        run: |
+          uv export \
+            --frozen \
+            --only-group build \
+            --no-emit-project \
+            --output-file /tmp/build-constraints.txt
+      - name: Build distributions
+        run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
+      - name: Test wheel installation and entry points
+        # The `uv pip` compatibility interface is intentional here: unlike
+        # `uv sync` or `uv run`, it enforces hashes from the exported lock data
+        # while installing the already-built wheel without re-resolving it.
+        run: |
+          uv venv /tmp/inspect-brief-release-venv
+          uv export \
+            --frozen \
+            --no-dev \
+            --no-emit-project \
+            --output-file /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-release-venv/bin/python \
+            --require-hashes \
+            --requirement /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-release-venv/bin/python \
+            --no-deps \
+            dist/*.whl
+          cd /tmp
+          /tmp/inspect-brief-release-venv/bin/python -c \
+            'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
+          /tmp/inspect-brief-release-venv/bin/inspect-brief --help
+      - name: Test source distribution installation and entry points
+        # The `uv pip` compatibility interface is intentional here: this check
+        # needs both hash-enforced constraints and `--no-build-isolation` while
+        # installing the already-built source distribution.
+        run: |
+          uv venv /tmp/inspect-brief-sdist-venv
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --require-hashes \
+            --requirement /tmp/build-constraints.txt
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --require-hashes \
+            --requirement /tmp/release-requirements.txt
+          uv pip install \
+            --python /tmp/inspect-brief-sdist-venv/bin/python \
+            --no-build-isolation \
+            --no-deps \
+            dist/*.tar.gz
+          cd /tmp
+          /tmp/inspect-brief-sdist-venv/bin/python -c \
+            'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
+          /tmp/inspect-brief-sdist-venv/bin/inspect-brief --help
+      - name: Package verified distributions
+        id: distributions
+        run: |
+          tar -cf distributions.tar dist
+          artifact_digest="$(sha256sum distributions.tar | cut -d ' ' -f 1)"
+          echo "artifact_digest=$artifact_digest" >> "$GITHUB_OUTPUT"
+      - name: Upload verified distributions
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: distributions
+          path: distributions.tar
+          if-no-files-found: error
+
+  publish:
+    needs: build_and_verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Configure both environments with required maintainers, prevent self-review,
+    # and restrict deployments to the default branch.
+    environment:
+      name: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'pypi' || 'testpypi' }}
+      url: ${{ contains(github.event.pull_request.labels.*.name, 'release') && 'https://pypi.org/p/inspect-brief' || 'https://test.pypi.org/p/inspect-brief' }}
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+      - name: Checkout verified release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Download verified distributions
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: distributions
+          path: artifact
+      - name: Verify downloaded distributions
+        env:
+          EXPECTED_DIGEST: ${{ needs.build_and_verify.outputs.artifact_digest }}
+        run: |
+          if [[ ! "$EXPECTED_DIGEST" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Missing or invalid distribution digest."
+            exit 1
+          fi
+          echo "$EXPECTED_DIGEST  artifact/distributions.tar" | sha256sum --check --strict
+          tar -xf artifact/distributions.tar
+      - name: Tag verified release commit
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        env:
+          GIT_PUSH_TOKEN: ${{ github.token }}
+          PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
+        run: |
+          git config user.name "GitHub Actions [release-bot]"
+          git config user.email "github-actions@hirundo.io"
+          if git rev-parse --verify --quiet "refs/tags/v${PACKAGE_VERSION}"; then
+            if [[ "$(git rev-list -n 1 "v${PACKAGE_VERSION}")" != "$(git rev-parse HEAD)" ]]; then
+              echo "Tag v${PACKAGE_VERSION} already points to a different commit."
+              exit 1
+            fi
+          else
+            git tag -a "v${PACKAGE_VERSION}" -m "Release v${PACKAGE_VERSION}"
+            git config --local credential.helper \
+              '!f() { echo "username=x-access-token"; echo "password=$GIT_PUSH_TOKEN"; }; f'
+            git push origin "v${PACKAGE_VERSION}"
+            git config --local --unset-all credential.helper
+          fi
+      - name: Publish package to TestPyPI
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'test') }}
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          repository-url: https://test.pypi.org/legacy/
+      - name: Publish package to PyPI
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'release') }}
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  deploy_docs:
+    name: Build and deploy documentation
+    needs: [build_and_verify, publish]
+    if: >-
+      contains(github.event.pull_request.labels.*.name, 'release') &&
+      needs.build_and_verify.outputs.publish_docs == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      pages: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout published release commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # `sphinx-multiversion` reads documentation from every release tag, so
+          # the full history and all tags must be present.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          persist-credentials: false
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          # No cache: a publishing workflow must not consume a cache that a pull
+          # request could have poisoned.
+          enable-cache: false
+      - name: Install documentation dependencies
+        run: uv sync --locked --group docs
+      - name: Select trusted release tags
+        id: release_tags
+        env:
+          PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
+        run: |
+          # `sphinx-multiversion` checks out every selected tag and executes its
+          # `docs/conf.py` and package code inside this Pages-write job, so only
+          # build tags that sit on the reviewed first-parent release history and
+          # declare their own version. Untrusted tags are skipped rather than
+          # failing the release, because release tags cannot be deleted.
+          # Read the declared version with a TOML parser rather than a line
+          # regex: quote style and spacing are free in TOML, and a missed match
+          # would drop that release from the Pages artifact, which replaces the
+          # whole published tree. A tagged version is file content from an
+          # arbitrary commit and TOML decodes escapes, so a value carrying
+          # control characters is reported as absent rather than echoed into
+          # the workflow command below, where a newline would forge one.
+          read_version='import sys, tomllib
+          version = tomllib.load(sys.stdin.buffer).get("project", {}).get("version", "")
+          print(version if isinstance(version, str) and version.isprintable() else "")'
+          mainline="$(git rev-list --first-parent HEAD)"
+          trusted=()
+          while read -r tag; do
+            commit="$(git rev-parse "${tag}^{commit}")"
+            declared="$(
+              git show "${commit}:pyproject.toml" 2>/dev/null \
+                | uv run --no-sync python -c "$read_version" 2>/dev/null || true
+            )"
+            if ! grep -qxF "$commit" <<< "$mainline"; then
+              echo "::warning::Skipping $tag: not on the release history."
+            elif [ "$declared" != "${tag#v}" ]; then
+              echo "::warning::Skipping $tag: declares version '$declared'."
+            else
+              trusted+=("$tag")
+            fi
+          done < <(
+            git tag --list 'v*' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V
+          )
+
+          if [[ " ${trusted[*]} " != *" v${PACKAGE_VERSION} "* ]]; then
+            echo "Release tag v${PACKAGE_VERSION} is not a trusted release tag."
+            exit 1
+          fi
+
+          escaped=("${trusted[@]//./\\.}")
+          {
+            echo "tag_pattern=^($(IFS='|'; echo "${escaped[*]}"))$"
+            echo "latest_version=${trusted[${#trusted[@]} - 1]#v}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Build versioned documentation
+        env:
+          TZ: UTC
+          PACKAGE_VERSION: ${{ needs.build_and_verify.outputs.package_version }}
+          TAG_PATTERN: ${{ steps.release_tags.outputs.tag_pattern }}
+          LATEST_VERSION: ${{ steps.release_tags.outputs.latest_version }}
+        run: |
+          uv run sphinx-multiversion -D "smv_tag_whitelist=$TAG_PATTERN" \
+            docs docs/_build/html
+          version_dir="docs/_build/html/v${PACKAGE_VERSION}"
+          if [ ! -d "$version_dir" ]; then
+            echo "Expected generated documentation at $version_dir"
+            exit 1
+          fi
+          # Point the root at the highest trusted release rather than this run's
+          # version, so re-running an older release cannot send the root backward.
+          latest="$LATEST_VERSION"
+          latest_index="docs/_build/html/v${latest}/index.html"
+          if [ ! -f "$latest_index" ]; then
+            echo "Expected latest stable documentation at $latest_index"
+            exit 1
+          fi
+          echo "::notice::Root redirect points at v${latest}."
+          PACKAGE_VERSION="$latest"
+          cat > docs/_build/html/index.html <<HTML
+          <!doctype html>
+          <html lang="en">
+            <head>
+              <meta charset="utf-8" />
+              <title>Redirecting to the latest release</title>
+              <meta http-equiv="refresh" content="0; url=./v${PACKAGE_VERSION}/index.html" />
+              <link rel="canonical" href="https://hirundo-io.github.io/inspect-brief/v${PACKAGE_VERSION}/index.html" />
+            </head>
+          </html>
+          HTML
+      - name: Configure Pages
+        uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
+        with:
+          path: docs/_build/html
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

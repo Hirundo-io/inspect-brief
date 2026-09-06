@@ -1,0 +1,36 @@
+name: GitHub Actions security
+
+on:
+  pull_request:
+    paths:
+      - .github/actions/**
+      - .github/workflows/**
+  push:
+    branches:
+      - main
+    paths:
+      - .github/actions/**
+      - .github/workflows/**
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: Audit workflows with zizmor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        with:
+          advanced-security: false
+          inputs: .
+          online-audits: false
