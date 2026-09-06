@@ -231,14 +231,18 @@ jobs:
           # build tags that sit on the reviewed first-parent release history and
           # declare their own version. Untrusted tags are skipped rather than
           # failing the release, because release tags cannot be deleted.
+          # Read the declared version with a TOML parser rather than a line
+          # regex: quote style and spacing are free in TOML, and a missed match
+          # would drop that release from the Pages artifact, which replaces the
+          # whole published tree.
+          read_version='import sys, tomllib; print(tomllib.load(sys.stdin.buffer).get("project", {}).get("version", ""))'
           mainline="$(git rev-list --first-parent HEAD)"
           trusted=()
           while read -r tag; do
             commit="$(git rev-parse "${tag}^{commit}")"
             declared="$(
               git show "${commit}:pyproject.toml" 2>/dev/null \
-                | sed -n 's/^version = "\(.*\)"$/\1/p' \
-                | head -1
+                | uv run --no-sync python -c "$read_version" 2>/dev/null || true
             )"
             if ! grep -qxF "$commit" <<< "$mainline"; then
               echo "::warning::Skipping $tag: not on the release history."
