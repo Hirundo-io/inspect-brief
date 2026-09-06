@@ -63,8 +63,8 @@ be named explicitly, including the one that provides the task:
      uvx --from inspect-ai --with inspect-brief --with inspect-evals \
      inspect eval inspect_evals/gpqa_diamond --model ollama/llama3.2
 
-In either form, each completed task appends its summary rows to the configured
-CSV.
+In either form, the hook appends summary rows for each completed task, subject
+to the hook's environment configuration.
 
 Manual export with the CLI
 --------------------------
