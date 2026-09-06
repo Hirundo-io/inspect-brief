@@ -43,21 +43,16 @@ jobs:
             --output-file /tmp/build-constraints.txt
       - name: Build distributions
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
-      - name: Resolve the minimum supported Inspect AI version
-        id: minimum
-        # `--resolution lowest-direct` reads the floor from `pyproject.toml`, so this
-        # test tracks the declared minimum instead of a separately pinned copy.
+      - name: Read the declared Inspect AI requirement
+        id: inspect
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          uv pip compile pyproject.toml \
-            --resolution lowest-direct \
-            --no-deps \
-            --quiet \
-            --output-file /tmp/dependency-floors.txt
-          minimum="$(grep -oE '^inspect-ai==[0-9a-z.]+' /tmp/dependency-floors.txt)"
-          echo "inspect_ai=${minimum}" >> "$GITHUB_OUTPUT"
+          requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["project"]["dependencies"] if item.startswith("inspect-ai")))')"
+          echo "requirement=$requirement" >> "$GITHUB_OUTPUT"
       - name: Verify installed entry points with the minimum Inspect AI version
         env:
-          MINIMUM_INSPECT_AI: ${{ steps.minimum.outputs.inspect_ai }}
+          INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
           PYTHON_VERSION: ${{ matrix.python-version }}
         # Run outside the repository root so the installed distribution is imported
         # instead of the source tree.
@@ -67,13 +62,15 @@ jobs:
           uv run \
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
-            --with "$MINIMUM_INSPECT_AI" \
+            --with "$INSPECT_REQUIREMENT" \
+            --resolution lowest-direct \
             --no-project \
             python -c \
             'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
           uv run \
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
-            --with "$MINIMUM_INSPECT_AI" \
+            --with "$INSPECT_REQUIREMENT" \
+            --resolution lowest-direct \
             --no-project \
             inspect-brief --help

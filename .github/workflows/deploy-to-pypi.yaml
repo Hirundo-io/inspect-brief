@@ -58,6 +58,9 @@ jobs:
       - name: Build distributions
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
       - name: Test wheel installation and entry points
+        # The `uv pip` compatibility interface is intentional here: unlike
+        # `uv sync` or `uv run`, it enforces hashes from the exported lock data
+        # while installing the already-built wheel without re-resolving it.
         run: |
           uv venv /tmp/inspect-brief-release-venv
           uv export \
@@ -78,6 +81,9 @@ jobs:
             'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
           /tmp/inspect-brief-release-venv/bin/inspect-brief --help
       - name: Test source distribution installation and entry points
+        # The `uv pip` compatibility interface is intentional here: this check
+        # needs both hash-enforced constraints and `--no-build-isolation` while
+        # installing the already-built source distribution.
         run: |
           uv venv /tmp/inspect-brief-sdist-venv
           uv pip install \
