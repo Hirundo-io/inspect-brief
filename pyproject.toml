@@ -10,7 +10,7 @@ inspect_brief = "inspect_brief._registry"
 
 [project]
 name = "inspect-brief"
-version = "0.1.0"
+version = "0.1.1"
 description = "Generate standardized concise metric summaries for Inspect evaluations."
 authors = [{ name = "Hirundo", email = "dev@hirundo.io" }]
 readme = "README.md"
@@ -54,7 +54,7 @@ include = ["inspect_brief*"]
 exclude = ["results*"]
 
 [tool.bumpver]
-current_version = "0.1.0"
+current_version = "0.1.1"
 version_pattern = "MAJOR.MINOR.PATCH[PYTAGNUM]"
 
 [tool.bumpver.file_patterns]
