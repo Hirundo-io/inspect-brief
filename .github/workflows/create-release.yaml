@@ -50,7 +50,10 @@ jobs:
           fi
 
           uv sync --locked --group dev
-          uv run bumpver update --set-version "$RELEASE_VERSION"
+          # `bumpver` fetches tags from the remote by default, which fails on a
+          # checkout made with `persist-credentials: false`. The version is
+          # given explicitly, so no tag lookup is needed.
+          uv run bumpver update --no-fetch --set-version "$RELEASE_VERSION"
           uv lock
 
           echo "base_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
