@@ -22,7 +22,7 @@ def test_parse_comma_separated() -> None:
 
 def test_parse_log_files_normalizes_and_resolves_paths(tmp_path: Path) -> None:
     first_log = tmp_path / "first.eval"
-    second_log = tmp_path / "second.eval"
+    second_log = tmp_path / "second.json"
     first_log.touch()
     second_log.touch()
 
@@ -33,11 +33,11 @@ def test_parse_log_files_normalizes_and_resolves_paths(tmp_path: Path) -> None:
 
 
 def test_parse_log_files_preserves_filesystem_uris(tmp_path: Path) -> None:
-    local_log = tmp_path / "local.eval"
+    local_log = tmp_path / "local.json"
     local_log.touch()
 
-    assert parse_log_files(["s3://bucket/remote.eval", local_log.as_uri()]) == [
-        "s3://bucket/remote.eval",
+    assert parse_log_files(["s3://bucket/remote.json", local_log.as_uri()]) == [
+        "s3://bucket/remote.json",
         local_log.as_uri(),
     ]
 
@@ -47,15 +47,15 @@ def test_parse_log_files_rejects_empty_values() -> None:
         parse_log_files([" ", " , "])
 
 
-def test_parse_log_files_rejects_non_eval_files(tmp_path: Path) -> None:
-    log_path = tmp_path / "run.json"
+def test_parse_log_files_rejects_unsupported_files(tmp_path: Path) -> None:
+    log_path = tmp_path / "run.txt"
     log_path.touch()
 
-    with pytest.raises(ValueError, match=r"supports only \.eval log files"):
+    with pytest.raises(ValueError, match=r"supports only \.eval and \.json log files"):
         parse_log_files([str(log_path)])
 
-    with pytest.raises(ValueError, match=r"supports only \.eval log files"):
-        parse_log_files(["s3://bucket/run.json"])
+    with pytest.raises(ValueError, match=r"supports only \.eval and \.json log files"):
+        parse_log_files(["s3://bucket/run.txt"])
 
 
 def test_parse_target_metrics_rejects_invalid_json() -> None:

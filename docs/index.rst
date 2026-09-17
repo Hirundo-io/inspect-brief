@@ -5,11 +5,6 @@ inspect-brief Documentation
 `Inspect AI <https://inspect.aisi.org.uk/>`_ evaluation logs and appends them to
 a CSV.
 
-.. important::
-
-   Inspect Brief currently supports Inspect ``.eval`` logs only. JSON-formatted
-   Inspect evaluation logs are not supported as input.
-
 Installation
 ------------
 
@@ -38,8 +33,8 @@ Inspect Brief can run in two separate ways:
 
 - **Inspect Hook** — automatically export a summary whenever an Inspect task
   finishes.
-- **CLI** — manually process existing ``.eval`` logs after an evaluation has
-  completed.
+- **CLI** — manually process existing ``.eval`` or ``.json`` logs after an
+  evaluation has completed.
 
 Automatic export with the Inspect Hook
 --------------------------------------
@@ -71,8 +66,9 @@ Manual export with the CLI
 
 At least one of ``--log-dir`` or ``--log-files`` is required:
 
-- ``--log-dir`` recursively discovers ``.eval`` logs under a directory.
-- ``--log-files`` accepts one or more explicit ``.eval`` paths or filesystem
+- ``--log-dir`` recursively discovers ``.eval`` and ``.json`` logs under a
+  directory.
+- ``--log-files`` accepts one or more explicit ``.eval`` or ``.json`` paths and
   URIs. Repeat the option, separate sources with commas, or combine both forms.
 - Supplying both combines the discovered and explicit logs and removes
   duplicates.
@@ -97,11 +93,12 @@ CLI options
    * - Option
      - Description
    * - ``--log-dir``
-     - Directory containing Inspect logs; recursively finds ``*.eval`` files and
-       combines them with ``--log-files`` when both are supplied.
+     - Directory containing Inspect logs; recursively finds ``.eval`` and
+       ``.json`` files and combines them with ``--log-files`` when both are
+       supplied.
    * - ``--log-files``
-     - One or more explicit ``.eval`` paths or filesystem URIs (repeatable or
-       comma-separated).
+     - One or more explicit ``.eval`` or ``.json`` paths and URIs (repeatable
+       or comma-separated).
    * - ``--tasks``
      - Tasks to include (repeatable or comma-separated); others are skipped.
    * - ``--target-metrics``
@@ -116,7 +113,7 @@ CLI options
 Examples
 ~~~~~~~~
 
-Summarize every ``.eval`` under a log tree:
+Summarize every ``.eval`` and ``.json`` log under a log tree:
 
 .. code-block:: bash
 
@@ -128,14 +125,14 @@ Summarize specific files and write to a chosen CSV:
 
    inspect-brief \
      --log-files /path/to/a.eval \
-     --log-files /path/to/b.eval \
+     --log-files /path/to/b.json \
      --csv-path results.csv
 
 Provider-backed logs can be supplied directly:
 
 .. code-block:: bash
 
-   inspect-brief --log-files s3://bucket/path/run.eval
+   inspect-brief --log-files s3://bucket/path/run.json
 
 Filter tasks and skip runs already recorded:
 

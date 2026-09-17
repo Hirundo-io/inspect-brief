@@ -2,13 +2,9 @@
 
 Generate standardized concise metric summaries from [Inspect AI](https://inspect.aisi.org.uk/) evaluation logs and append them to a CSV.
 
-> [!IMPORTANT]
-> Inspect Brief currently supports Inspect `.eval` logs only. JSON-formatted
-> Inspect evaluation logs are not supported as input.
-
 ## Features
 
-- Load Inspect `.eval` logs recursively or from explicit file paths
+- Load Inspect `.eval` and `.json` logs recursively or from explicit paths and URIs
 - Optionally filter by task name and select target metrics per task
 - Append results to a CSV (rewrites the header when columns change, preserving existing rows)
 - Skip runs already present in the CSV via `--skip-existing`
@@ -43,7 +39,8 @@ For local development from a repository checkout, see
 Inspect Brief can run in two separate ways:
 
 - **Inspect Hook:** automatically export a summary whenever an Inspect task finishes.
-- **CLI:** manually process existing `.eval` logs after an evaluation has completed.
+- **CLI:** manually process existing `.eval` or `.json` logs after an evaluation
+  has completed.
 
 The hook is the recommended flow for automatic export during normal Inspect runs.
 Use the CLI for existing logs, one-off exports, or regenerating a summary CSV.
@@ -125,12 +122,10 @@ need to process existing logs again.
 
 At least one of `--log-dir` or `--log-files` is required:
 
-- `--log-dir` recursively discovers `.eval` logs under a directory.
-- `--log-files` accepts one or more explicit `.eval` paths or filesystem URIs.
+- `--log-dir` recursively discovers `.eval` and `.json` logs under a directory.
+- `--log-files` accepts one or more explicit `.eval` or `.json` paths and URIs.
   Repeat the option, separate sources with commas, or combine both forms.
 - Supplying both combines the discovered and explicit logs and removes duplicates.
-
-JSON-formatted Inspect logs are not supported by either CLI input option.
 
 ### 2. Run the export
 
@@ -150,8 +145,8 @@ uvx inspect-brief [OPTIONS]
 
 | Option | Description |
 | --- | --- |
-| `--log-dir` | Directory containing Inspect logs; recursively finds `*.eval` files and combines them with `--log-files` when both are supplied |
-| `--log-files` | One or more explicit `.eval` paths or filesystem URIs (repeatable or comma-separated); combines them with logs found by `--log-dir` when both are supplied |
+| `--log-dir` | Directory containing Inspect logs; recursively finds `.eval` and `.json` files and combines them with `--log-files` when both are supplied |
+| `--log-files` | One or more explicit `.eval` or `.json` paths and URIs (repeatable or comma-separated); combines them with logs found by `--log-dir` when both are supplied |
 | `--tasks` | Tasks to include (repeatable or comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |
 | `--csv-path` | Output CSV path (default: `brief_results.csv` under `--log-dir`, or the current directory) |
@@ -159,7 +154,7 @@ uvx inspect-brief [OPTIONS]
 
 ### CLI examples
 
-Summarize every `.eval` under a log tree:
+Summarize every `.eval` and `.json` log under a log tree:
 
 ```bash
 inspect-brief --log-dir /path/to/inspect/logs
@@ -170,14 +165,14 @@ Summarize specific files and write to a chosen CSV:
 ```bash
 inspect-brief \
   --log-files /path/to/a.eval \
-  --log-files /path/to/b.eval \
+  --log-files /path/to/b.json \
   --csv-path results.csv
 ```
 
 Provider-backed logs can be supplied directly:
 
 ```bash
-inspect-brief --log-files s3://bucket/path/run.eval
+inspect-brief --log-files s3://bucket/path/run.json
 ```
 
 Filter tasks and skip runs already recorded:
