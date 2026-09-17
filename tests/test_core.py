@@ -131,6 +131,44 @@ def test_load_logs_combines_explicit_files_and_directory(
     assert loaded == [str(explicit), str(discovered), str(discovered_json)]
 
 
+def test_load_logs_ignores_suffix_matching_directories_in_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    (tmp_path / "artifacts.json").mkdir()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == [str(log_path)]
+    assert loaded == [str(log_path)]
+
+
+def test_load_logs_rejects_unrelated_discovered_json_in_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    metadata_path = tmp_path / "metadata.json"
+    log_path.touch()
+    metadata_path.write_text("{}", encoding="utf-8")
+    loaded: list[str] = []
+
+    def read_log(path: str) -> str:
+        loaded.append(path)
+        if path == str(metadata_path):
+            raise ValueError("not an Inspect log")
+        return path
+
+    monkeypatch.setattr(core, "read_eval_log", read_log)
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log"):
+        load_logs(log_dir=str(tmp_path), fail_on_error=True)
+
+    assert loaded == [str(log_path), str(metadata_path)]
+
+
 def test_load_logs_reads_real_inspect_json_log(tmp_path: Path) -> None:
     log_path = tmp_path / "run.json"
     core.write_eval_log(

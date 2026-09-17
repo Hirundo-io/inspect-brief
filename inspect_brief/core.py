@@ -83,6 +83,7 @@ def _discover_log_paths(
             str(path)
             for suffix in _SUPPORTED_LOG_SUFFIXES
             for path in Path(log_dir).rglob(f"*{suffix}")
+            if path.is_file()
         ]
     except OSError as error:
         logger.warning("❌ Could not scan Inspect log directory %s: %s", log_dir, error)
