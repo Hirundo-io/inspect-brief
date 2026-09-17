@@ -71,7 +71,7 @@ def parse_log_files_option(values: list[str] | None) -> list[str] | None:
 
     Args:
         values: Raw option values, each of which may contain comma-separated
-            paths or filesystem URIs.
+            paths or log URIs.
 
     Returns:
         Resolved local paths and unchanged filesystem URIs, or None when no
@@ -98,7 +98,7 @@ def main(
         Path | None,
         typer.Option(
             "--log-dir",
-            help="Directory containing the Inspect evaluation logs",
+            help="Directory containing Inspect .eval and .json logs",
             exists=True,
             file_okay=False,
             dir_okay=True,
@@ -112,8 +112,8 @@ def main(
             "--log-files",
             metavar="SOURCE[,SOURCE...]",
             help=(
-                "Paths or filesystem URIs for Inspect evaluation logs; repeat "
-                "the option or separate sources with commas"
+                "Paths or URIs for Inspect .eval and .json logs; repeat the "
+                "option or separate sources with commas"
             ),
         ),
     ] = None,
