@@ -229,12 +229,49 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     return Path(log_file).with_suffix(".json")
 
 
-def _export_log_json(log: EvalLog, log_file: str) -> None:
+def _sidecar_overwrites_input(
+    destination: str | Path,
+    source_keys: set[str | Path],
+) -> bool:
+    """Check a sidecar destination against all validated input locations.
+
+    Args:
+        destination: Local path or provider URI of the proposed sidecar.
+        source_keys: Canonical local paths and provider URIs of the inputs.
+
+    Returns:
+        Whether the destination aliases an input, including local hardlinks.
+    """
+    try:
+        destination_key = _log_source_key(str(destination))
+    except FileNotFoundError:
+        return False
+    if destination_key in source_keys:
+        return True
+    if isinstance(destination_key, Path):
+        return any(
+            destination_key.samefile(source)
+            for source in source_keys
+            if isinstance(source, Path)
+        )
+    return any(
+        _display_log_source(destination_key) == _display_log_source(source)
+        for source in source_keys
+        if isinstance(source, str)
+    )
+
+
+def _export_log_json(
+    log: EvalLog,
+    log_file: str,
+    source_keys: set[str | Path],
+) -> None:
     """Export a JSON sidecar without exposing URI credentials.
 
     Args:
         log: Inspect evaluation log to export.
         log_file: Source location of the evaluation log.
+        source_keys: Validated input locations that sidecars must not overwrite.
     """
     display_source = _display_log_source(log_file)
     if display_source != log_file:
@@ -247,7 +284,14 @@ def _export_log_json(log: EvalLog, log_file: str) -> None:
 
     logger.info("📝 Exporting Inspect log %s as JSON", display_source)
     try:
-        write_eval_log(log, _json_sidecar_path(log_file), format="json")
+        destination = _json_sidecar_path(log_file)
+        if _sidecar_overwrites_input(destination, source_keys):
+            logger.warning(
+                "Skipping JSON sidecar for %s: destination aliases an input log",
+                display_source,
+            )
+            return
+        write_eval_log(log, destination, format="json")
     except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
         logger.warning("❌ Could not export Inspect log %s", display_source)
 
@@ -290,6 +334,7 @@ def load_logs(
         export_jsons (optional): Whether to export the Inspect logs as JSON sidecars.
             URI sources containing userinfo, query, or fragment components are
             skipped because they cannot be forwarded safely to the writer.
+            Sidecars whose destinations alias any input are also skipped.
         fail_on_error: Whether to raise after processing all paths if any log
             fails to load.
 
@@ -310,6 +355,7 @@ def load_logs(
     if log_dir:
         paths.extend(_discover_log_paths(log_dir, load_errors))
     logs: list[EvalLog] = []
+    sidecars: list[tuple[EvalLog, str]] = []
     source_keys: set[str | Path] = set()
     for log_file in paths:
         display_source = _display_log_source(log_file)
@@ -324,7 +370,7 @@ def load_logs(
             log = read_eval_log(read_source)
             logs.append(log)
             if export_jsons and not _is_json_log_source(source_key):
-                _export_log_json(log, log_file)
+                sidecars.append((log, log_file))
         # Inspect log readers and storage backends may raise provider-specific
         # exceptions. Isolate each path so one malformed log does not stop the rest.
         except Exception as error:  # ruff: ignore[blind-except]
@@ -335,6 +381,11 @@ def load_logs(
                 error,
             )
             load_errors.append((display_source, error))
+
+    # Read every input before exporting so later inputs, including unreadable
+    # logs, are protected from earlier logs' sidecar destinations.
+    for log, log_file in sidecars:
+        _export_log_json(log, log_file, source_keys)
 
     if load_errors and fail_on_error:
         failed_paths = ", ".join(path for path, _ in load_errors)

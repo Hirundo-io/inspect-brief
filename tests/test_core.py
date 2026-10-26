@@ -666,3 +666,96 @@ def test_header_migration_preserves_original_when_rewrite_fails(
 
     assert csv_path.read_text(encoding="utf-8") == original
     assert list(tmp_path.glob(".brief.csv.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "input_kind",
+    [
+        "eval-first",
+        "json-first",
+        "directory",
+        "file-uri",
+        "native-file-uri",
+        "symlink",
+        "destination-symlink",
+        "hardlink",
+    ],
+)
+def test_load_logs_preserves_json_input_colliding_with_sidecar(
+    tmp_path: Path,
+    input_kind: str,
+) -> None:
+    native_path = tmp_path / "run.eval"
+    json_path = tmp_path / "run.json"
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    core.write_eval_log(
+        evaluation_log("json", "json-run", 0.75),
+        json_path,
+        format="json",
+    )
+    original_json = json_path.read_bytes()
+    json_source = str(json_path)
+    if input_kind == "file-uri":
+        json_source = json_path.as_uri()
+    elif input_kind in {"symlink", "hardlink"}:
+        alias_path = tmp_path / "alias.json"
+        if input_kind == "symlink":
+            alias_path.symlink_to(json_path)
+        else:
+            alias_path.hardlink_to(json_path)
+        json_source = str(alias_path)
+    elif input_kind == "destination-symlink":
+        original_path = tmp_path / "original.json"
+        json_path.rename(original_path)
+        json_path.symlink_to(original_path)
+        json_source = str(original_path)
+    native_source = (
+        native_path.as_uri() if input_kind == "native-file-uri" else str(native_path)
+    )
+    sources = [native_source, json_source]
+    if input_kind == "json-first":
+        sources.reverse()
+    logs = load_logs(
+        log_dir=str(tmp_path) if input_kind == "directory" else None,
+        log_files=None if input_kind == "directory" else sources,
+        export_jsons=True,
+        fail_on_error=True,
+    )
+
+    assert json_path.read_bytes() == original_json
+    assert sorted(log.eval.task_id for log in logs) == ["json-run", "native-run"]
+
+
+def test_load_logs_skips_remote_sidecar_colliding_with_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sources = ["s3://inspect-logs/run.eval", "s3://inspect-logs/run.json"]
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda *_args, **_kwargs: pytest.fail("Input must not be overwritten"),
+    )
+
+    assert (
+        load_logs(log_files=sources, export_jsons=True, fail_on_error=True) == sources
+    )
+
+
+def test_load_logs_preserves_unreadable_input_colliding_with_sidecar(
+    tmp_path: Path,
+) -> None:
+    native_path = tmp_path / "run.eval"
+    json_path = tmp_path / "run.json"
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    json_path.write_text("not valid JSON", encoding="utf-8")
+    original_json = json_path.read_bytes()
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log"):
+        load_logs(
+            log_files=[str(native_path), str(json_path)],
+            export_jsons=True,
+            fail_on_error=True,
+        )
+
+    assert json_path.read_bytes() == original_json
