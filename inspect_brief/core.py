@@ -15,6 +15,9 @@ from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
 logger = logging.getLogger(__name__)
 
+_SUPPORTED_LOG_SUFFIXES = (".eval", ".json")
+_SUPPORTED_LOG_ERROR = "Inspect Brief supports only .eval and .json log files"
+
 
 class ProgressCallback(Protocol):
     """Receive progress updates while Inspect logs are prepared."""
@@ -71,32 +74,38 @@ def _discover_log_paths(
         load_errors: Mutable collection that receives directory scan failures.
 
     Returns:
-        Discovered `.eval` file paths, or an empty list when scanning fails.
+        Discovered `.eval` and `.json` file paths, or an empty list when scanning
+        fails.
 
     """
     try:
-        return [str(path) for path in Path(log_dir).rglob("*.eval")]
+        return [
+            str(path)
+            for suffix in _SUPPORTED_LOG_SUFFIXES
+            for path in Path(log_dir).rglob(f"*{suffix}")
+            if path.is_file()
+        ]
     except OSError as error:
         logger.warning("❌ Could not scan Inspect log directory %s: %s", log_dir, error)
         load_errors.append((f"{log_dir} (directory scan)", error))
         return []
 
 
-def _resolve_eval_log_path(log_file: str) -> Path:
+def _resolve_log_path(log_file: str) -> Path:
     """Validate and resolve a local Inspect evaluation-log path.
 
     Args:
         log_file: Path supplied to the log loader.
 
     Returns:
-        The canonical path to the `.eval` log.
+        The canonical path to the `.eval` or `.json` log.
 
     Raises:
-        ValueError: If the supplied path is not an `.eval` file.
+        ValueError: If the supplied path is not a supported log file.
     """
     path = Path(log_file)
-    if path.suffix != ".eval":
-        raise ValueError("Inspect Brief currently supports only .eval log files")
+    if path.suffix not in _SUPPORTED_LOG_SUFFIXES:
+        raise ValueError(_SUPPORTED_LOG_ERROR)
     return path.resolve(strict=True)
 
 
@@ -107,7 +116,7 @@ def _is_log_uri(log_file: str) -> bool:
         log_file: Log source supplied to the loader.
 
     Returns:
-        True for sources such as ``s3://bucket/run.eval``, ``file:/run.eval``,
+        True for sources such as ``s3://bucket/run.json``, ``file:/run.eval``,
         and ``file:///run.eval``.
     """
     scheme = urlsplit(log_file).scheme
@@ -121,11 +130,11 @@ def _resolve_file_uri_path(log_file: str) -> Path:
         log_file: Local file URI supplied to the log loader.
 
     Returns:
-        The canonical path to the referenced `.eval` log.
+        The canonical path to the referenced `.eval` or `.json` log.
     """
     parsed = urlsplit(log_file)
     authority = "" if parsed.netloc in {"", "localhost"} else f"//{parsed.netloc}"
-    return _resolve_eval_log_path(url2pathname(f"{authority}{parsed.path}"))
+    return _resolve_log_path(url2pathname(f"{authority}{parsed.path}"))
 
 
 def _display_log_source(log_file: str) -> str:
@@ -165,7 +174,7 @@ def _redact_log_error(log_file: str, error: Exception) -> Exception:
     return RuntimeError(f"{type(error).__name__} while accessing redacted log URI")
 
 
-def _eval_log_source_key(log_file: str) -> str | Path:
+def _log_source_key(log_file: str) -> str | Path:
     """Validate a log source and return its stable deduplication key.
 
     Args:
@@ -175,17 +184,31 @@ def _eval_log_source_key(log_file: str) -> str | Path:
         The unchanged URI for remote/provider sources, or the canonical local path.
 
     Raises:
-        ValueError: If the supplied source is not an `.eval` log.
+        ValueError: If the supplied source is not a supported log.
     """
     if _is_log_uri(log_file):
         parsed = urlsplit(log_file)
         if parsed.scheme == "file":
             return _resolve_file_uri_path(log_file)
-        if PurePosixPath(parsed.path).suffix != ".eval":
-            raise ValueError("Inspect Brief currently supports only .eval log files")
+        if PurePosixPath(parsed.path).suffix not in _SUPPORTED_LOG_SUFFIXES:
+            raise ValueError(_SUPPORTED_LOG_ERROR)
         return log_file
 
-    return _resolve_eval_log_path(log_file)
+    return _resolve_log_path(log_file)
+
+
+def _is_json_log_source(source_key: str | Path) -> bool:
+    """Return whether a validated log source is already JSON formatted.
+
+    Args:
+        source_key: Canonical local path or unchanged provider URI.
+
+    Returns:
+        True when the source path has a `.json` suffix.
+    """
+    if isinstance(source_key, Path):
+        return source_key.suffix == ".json"
+    return PurePosixPath(urlsplit(source_key).path).suffix == ".json"
 
 
 def _json_sidecar_path(log_file: str) -> str | Path:
@@ -206,12 +229,49 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     return Path(log_file).with_suffix(".json")
 
 
-def _export_log_json(log: EvalLog, log_file: str) -> None:
+def _sidecar_overwrites_input(
+    destination: str | Path,
+    source_keys: set[str | Path],
+) -> bool:
+    """Check a sidecar destination against all validated input locations.
+
+    Args:
+        destination: Local path or provider URI of the proposed sidecar.
+        source_keys: Canonical local paths and provider URIs of the inputs.
+
+    Returns:
+        Whether the destination aliases an input, including local hardlinks.
+    """
+    try:
+        destination_key = _log_source_key(str(destination))
+    except FileNotFoundError:
+        return False
+    if destination_key in source_keys:
+        return True
+    if isinstance(destination_key, Path):
+        return any(
+            destination_key.samefile(source)
+            for source in source_keys
+            if isinstance(source, Path)
+        )
+    return any(
+        _display_log_source(destination_key) == _display_log_source(source)
+        for source in source_keys
+        if isinstance(source, str)
+    )
+
+
+def _export_log_json(
+    log: EvalLog,
+    log_file: str,
+    source_keys: set[str | Path],
+) -> None:
     """Export a JSON sidecar without exposing URI credentials.
 
     Args:
         log: Inspect evaluation log to export.
         log_file: Source location of the evaluation log.
+        source_keys: Validated input locations that sidecars must not overwrite.
     """
     display_source = _display_log_source(log_file)
     if display_source != log_file:
@@ -224,7 +284,14 @@ def _export_log_json(log: EvalLog, log_file: str) -> None:
 
     logger.info("📝 Exporting Inspect log %s as JSON", display_source)
     try:
-        write_eval_log(log, _json_sidecar_path(log_file), format="json")
+        destination = _json_sidecar_path(log_file)
+        if _sidecar_overwrites_input(destination, source_keys):
+            logger.warning(
+                "Skipping JSON sidecar for %s: destination aliases an input log",
+                display_source,
+            )
+            return
+        write_eval_log(log, destination, format="json")
     except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
         logger.warning("❌ Could not export Inspect log %s", display_source)
 
@@ -267,6 +334,7 @@ def load_logs(
         export_jsons (optional): Whether to export the Inspect logs as JSON sidecars.
             URI sources containing userinfo, query, or fragment components are
             skipped because they cannot be forwarded safely to the writer.
+            Sidecars whose destinations alias any input are also skipped.
         fail_on_error: Whether to raise after processing all paths if any log
             fails to load.
 
@@ -287,21 +355,22 @@ def load_logs(
     if log_dir:
         paths.extend(_discover_log_paths(log_dir, load_errors))
     logs: list[EvalLog] = []
+    sidecars: list[tuple[EvalLog, str]] = []
     source_keys: set[str | Path] = set()
     for log_file in paths:
         display_source = _display_log_source(log_file)
         try:
             # Canonicalize local paths for deduplication while preserving provider
             # URIs so Inspect's fsspec-backed reader can handle them unchanged.
-            source_key = _eval_log_source_key(log_file)
+            source_key = _log_source_key(log_file)
             if source_key in source_keys:
                 continue
             source_keys.add(source_key)
             read_source = log_file if isinstance(source_key, str) else str(source_key)
             log = read_eval_log(read_source)
             logs.append(log)
-            if export_jsons:
-                _export_log_json(log, log_file)
+            if export_jsons and not _is_json_log_source(source_key):
+                sidecars.append((log, log_file))
         # Inspect log readers and storage backends may raise provider-specific
         # exceptions. Isolate each path so one malformed log does not stop the rest.
         except Exception as error:  # ruff: ignore[blind-except]
@@ -312,6 +381,11 @@ def load_logs(
                 error,
             )
             load_errors.append((display_source, error))
+
+    # Read every input before exporting so later inputs, including unreadable
+    # logs, are protected from earlier logs' sidecar destinations.
+    for log, log_file in sidecars:
+        _export_log_json(log, log_file, source_keys)
 
     if load_errors and fail_on_error:
         failed_paths = ", ".join(path for path, _ in load_errors)
