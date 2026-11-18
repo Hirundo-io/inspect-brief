@@ -194,12 +194,32 @@ inspect-brief \
 
 When `--target-metrics` is omitted, every metric present in the log scores is exported (with a scorer prefix when a log has multiple scorers).
 
-When provided, pass a JSON object (inline or as a file path) mapping each task name to a list of `InspectScore` objects. Each object must have exactly these keys:
+When provided, pass a JSON object (inline or as a file path) mapping each task name to a list of `InspectScore` objects. Each object must have these keys:
 
 - `name` — metric name as it appears in the Inspect log
 - `is_percentage` — whether to treat the value as a percentage (appends ` (%)` to the metric label)
 - `is_higher_better` — appends `⬆️` or `⬇️` to the metric label
 - `is_normalized` — if `is_percentage` is true and this is true, multiply the value by `100`
+
+It may also have these optional keys, each a non-empty string. No other keys are allowed.
+
+- `scorer` — read the metric only from the scorer result with this name. Without it, the first scorer result that has a metric called `name` is used. Use it when several scorers report a metric with the same name.
+- `label` — the metric label written to the CSV in place of `name`. The ` (%)` and `⬆️`/`⬇️` annotations are still appended.
+
+Labels must be unique within a task after annotation. For example, a task whose `utility` and `security` scorers both report `accuracy`:
+
+```json
+{
+  "inspect_evals/agentdojo": [
+    {"name": "accuracy", "scorer": "utility", "label": "utility",
+     "is_percentage": true, "is_higher_better": true, "is_normalized": true},
+    {"name": "accuracy", "scorer": "security", "label": "attack success rate",
+     "is_percentage": true, "is_higher_better": false, "is_normalized": true}
+  ]
+}
+```
+
+If no scorer result named `scorer` has the metric, the Score column records `Metric '<name>' not found in scorer '<scorer>'`.
 
 Example (quote the JSON for the shell):
 

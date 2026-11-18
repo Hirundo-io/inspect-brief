@@ -147,3 +147,64 @@ def test_parse_target_metrics_rejects_duplicate_output_labels() -> None:
                 },
             ),
         )
+
+
+def test_parse_target_metrics_accepts_scorer_and_label() -> None:
+    metric = {
+        "name": "accuracy",
+        "is_percentage": True,
+        "is_higher_better": False,
+        "is_normalized": True,
+        "scorer": "security",
+        "label": "attack success rate",
+    }
+
+    assert parse_target_metrics(json.dumps({"task-a": [metric]})) == {
+        "task-a": [metric],
+    }
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"scorer": ""}, r"non-empty strings for \['scorer'\]"),
+        ({"label": " "}, r"non-empty strings for \['label'\]"),
+        ({"scorer": 1, "label": None}, r"non-empty strings for \['label', 'scorer'\]"),
+        ({"unit": "ms"}, "and optionally"),
+    ],
+)
+def test_parse_target_metrics_rejects_invalid_optional_keys(
+    extra: dict[str, object],
+    message: str,
+) -> None:
+    metric = {
+        "name": "accuracy",
+        "is_percentage": False,
+        "is_higher_better": True,
+        "is_normalized": False,
+    } | extra
+
+    with pytest.raises(ValueError, match=message):
+        parse_target_metrics(json.dumps({"task-a": [metric]}))
+
+
+def test_parse_target_metrics_checks_labels_after_relabelling(tmp_path: Path) -> None:
+    base = {
+        "name": "accuracy",
+        "is_percentage": True,
+        "is_higher_better": True,
+        "is_normalized": True,
+    }
+    distinct = [base | {"scorer": "utility"}, base | {"scorer": "security"}]
+    relabelled = [
+        base | {"scorer": "utility", "label": "utility"},
+        base | {"scorer": "security", "label": "security"},
+    ]
+
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_text(json.dumps({"task-a": distinct}), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicates the output label"):
+        parse_target_metrics(str(metrics_path))
+
+    metrics_path.write_text(json.dumps({"task-a": relabelled}), encoding="utf-8")
+    assert parse_target_metrics(str(metrics_path)) == {"task-a": relabelled}

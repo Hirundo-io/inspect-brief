@@ -7,7 +7,7 @@ import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Protocol, TypedDict, get_type_hints
+from typing import NotRequired, Protocol, TypedDict, get_type_hints
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import url2pathname
 
@@ -38,6 +38,12 @@ class InspectScore(TypedDict):
         is_higher_better: Whether a higher value is better.
         is_normalized: Whether the score is normalized. Relevant only for
             percentage scores.
+        scorer: Optional. Read the metric only from the scorer result with
+            this name, for logs where several scorers report a metric with
+            the same name.
+        label: Optional. The metric label written to the CSV in place of
+            ``name``; the percentage and direction annotations are still
+            added.
 
     """
 
@@ -45,6 +51,8 @@ class InspectScore(TypedDict):
     is_percentage: bool
     is_higher_better: bool
     is_normalized: bool
+    scorer: NotRequired[str]
+    label: NotRequired[str]
 
 
 OutputEntry = TypedDict(
@@ -332,7 +340,7 @@ def target_metric_name(target_metric: InspectScore) -> str:
         The metric name annotated with percentage and direction metadata.
 
     """
-    metric_name = target_metric["name"]
+    metric_name = target_metric.get("label", target_metric["name"])
     if target_metric["is_percentage"]:
         metric_name += " (%)"
 
@@ -403,7 +411,10 @@ def target_score_values(
     score_values: dict[str, float | str] = {}
     for target_metric in target_metrics:
         metric_name = target_metric_name(target_metric)
+        scorer = target_metric.get("scorer")
         for score in scores:
+            if scorer is not None and score.name != scorer:
+                continue
             if target_metric["name"] not in score.metrics:
                 continue
             metric_value = score.metrics[target_metric["name"]].value
@@ -412,7 +423,10 @@ def target_score_values(
             score_values[metric_name] = metric_value
             break
         else:
-            score_values[metric_name] = f"Metric '{target_metric['name']}' not found"
+            location = "" if scorer is None else f" in scorer '{scorer}'"
+            score_values[metric_name] = (
+                f"Metric '{target_metric['name']}' not found{location}"
+            )
 
     return score_values
 

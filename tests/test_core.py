@@ -1,5 +1,6 @@
 import csv
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from inspect_ai.log import (
@@ -15,6 +16,7 @@ from inspect_ai.log import (
 
 from inspect_brief import core
 from inspect_brief.core import (
+    InspectScore,
     export_results,
     get_runtime_from_timestamps,
     load_logs,
@@ -476,6 +478,86 @@ def test_export_results_passes_progress_callback(
     )
 
     assert captured["progress_callback"] is progress_callback
+
+
+def scorer_results_log(status: Literal["success", "error"] = "success") -> EvalLog:
+    """Create a log whose two scorer results both report ``accuracy``."""
+    log = evaluation_log("task-a", "run-a", 0.0)
+    log.status = status
+    log.results = EvalResults(
+        scores=[
+            EvalScore(name="combined", scorer="combined", metrics={}),
+            EvalScore(
+                name="utility",
+                scorer="combined",
+                metrics={"accuracy": EvalMetric(name="accuracy", value=0.75)},
+            ),
+            EvalScore(
+                name="security",
+                scorer="combined",
+                metrics={"accuracy": EvalMetric(name="accuracy", value=0.25)},
+            ),
+        ],
+    )
+    return log
+
+
+def accuracy_target(**options: str) -> InspectScore:
+    """Create a normalized percentage accuracy target with optional keys."""
+    target = InspectScore(
+        name="accuracy",
+        is_percentage=True,
+        is_higher_better=False,
+        is_normalized=True,
+    )
+    if "scorer" in options:
+        target["scorer"] = options["scorer"]
+    if "label" in options:
+        target["label"] = options["label"]
+    return target
+
+
+def test_target_metrics_select_scorer_and_label() -> None:
+    rows = prepare_log_results(
+        scorer_results_log(),
+        [
+            accuracy_target(),
+            accuracy_target(scorer="security", label="attack success rate"),
+        ],
+        log_progress=False,
+    )
+
+    assert [(row["Metric"], row["Score"]) for row in rows] == [
+        ("accuracy (%) ⬇️", 75.0),
+        ("attack success rate (%) ⬇️", 25.0),
+    ]
+
+
+def test_target_metric_reports_missing_metric_in_named_scorer() -> None:
+    rows = prepare_log_results(
+        scorer_results_log(),
+        [accuracy_target(scorer="combined", label="combined accuracy")],
+        log_progress=False,
+    )
+
+    assert [(row["Metric"], row["Score"]) for row in rows] == [
+        (
+            "combined accuracy (%) ⬇️",
+            "Metric 'accuracy' not found in scorer 'combined'",
+        ),
+    ]
+
+
+def test_failed_runs_use_target_labels() -> None:
+    rows = prepare_log_results(
+        scorer_results_log(status="error"),
+        [accuracy_target(scorer="security", label="attack success rate")],
+        log_progress=False,
+    )
+
+    assert [(row["Metric"], row["Score"]) for row in rows] == [
+        ("attack success rate (%) ⬇️", "Failed (error)"),
+    ]
 
 
 def test_empty_target_metric_selection_exports_no_rows() -> None:
