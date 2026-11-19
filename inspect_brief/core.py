@@ -38,9 +38,9 @@ class InspectScore(TypedDict):
         is_higher_better: Whether a higher value is better.
         is_normalized: Whether the score is normalized. Relevant only for
             percentage scores.
-        scorer: Optional. Read the metric only from the scorer result with
-            this name, for logs where several scorers report a metric with
-            the same name.
+        score_name: Optional. Read the metric only from the score with this
+            name (``EvalScore.name``, not ``EvalScore.scorer``), for logs
+            where several scores report a metric with the same name.
         label: Optional. The metric label written to the CSV in place of
             ``name``; the percentage and direction annotations are still
             added.
@@ -51,7 +51,7 @@ class InspectScore(TypedDict):
     is_percentage: bool
     is_higher_better: bool
     is_normalized: bool
-    scorer: NotRequired[str]
+    score_name: NotRequired[str]
     label: NotRequired[str]
 
 
@@ -411,9 +411,9 @@ def target_score_values(
     score_values: dict[str, float | str] = {}
     for target_metric in target_metrics:
         metric_name = target_metric_name(target_metric)
-        scorer = target_metric.get("scorer")
+        score_name = target_metric.get("score_name")
         for score in scores:
-            if scorer is not None and score.name != scorer:
+            if score_name is not None and score.name != score_name:
                 continue
             if target_metric["name"] not in score.metrics:
                 continue
@@ -423,10 +423,16 @@ def target_score_values(
             score_values[metric_name] = metric_value
             break
         else:
-            location = "" if scorer is None else f" in scorer '{scorer}'"
-            score_values[metric_name] = (
-                f"Metric '{target_metric['name']}' not found{location}"
-            )
+            if score_name is None:
+                message = f"Metric '{target_metric['name']}' not found"
+            elif any(score.name == score_name for score in scores):
+                message = (
+                    f"Metric '{target_metric['name']}' not found in score "
+                    f"'{score_name}'"
+                )
+            else:
+                message = f"Score '{score_name}' not found"
+            score_values[metric_name] = message
 
     return score_values
 

@@ -68,10 +68,10 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
         is_higher_better=metric["is_higher_better"],
         is_normalized=metric["is_normalized"],
     )
-    if "scorer" in metric:
-        score["scorer"] = metric["scorer"]
+    if "score_name" in metric:
+        score["score_name"] = metric["score_name"].strip()
     if "label" in metric:
-        score["label"] = metric["label"]
+        score["label"] = metric["label"].strip()
     return score
 
 
@@ -171,7 +171,8 @@ def parse_target_metrics(
         raise ValueError(
             f"{source} {input_description} is not valid JSON. Expected a JSON "
             "object mapping task names to InspectScore objects with keys "
-            f"{sorted(_REQUIRED_SCORE_KEYS)}",
+            f"{sorted(_REQUIRED_SCORE_KEYS)} and optionally "
+            f"{sorted(_OPTIONAL_SCORE_KEYS)}",
         ) from error
 
     if not isinstance(parsed, dict):
@@ -194,7 +195,8 @@ def parse_target_metrics(
             if label in metric_labels:
                 raise ValueError(
                     f"Metric {index} for task '{task}' duplicates the output label "
-                    f"of metric {metric_labels[label]}: {label!r}",
+                    f"of metric {metric_labels[label]}: {label!r}. Give one of "
+                    "them a distinct 'label'",
                 )
             metric_labels[label] = index
             scores.append(score)

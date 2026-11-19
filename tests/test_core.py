@@ -510,19 +510,19 @@ def accuracy_target(**options: str) -> InspectScore:
         is_higher_better=False,
         is_normalized=True,
     )
-    if "scorer" in options:
-        target["scorer"] = options["scorer"]
+    if "score_name" in options:
+        target["score_name"] = options["score_name"]
     if "label" in options:
         target["label"] = options["label"]
     return target
 
 
-def test_target_metrics_select_scorer_and_label() -> None:
+def test_target_metrics_select_score_and_label() -> None:
     rows = prepare_log_results(
         scorer_results_log(),
         [
             accuracy_target(),
-            accuracy_target(scorer="security", label="attack success rate"),
+            accuracy_target(score_name="security", label="attack success rate"),
         ],
         log_progress=False,
     )
@@ -533,25 +533,37 @@ def test_target_metrics_select_scorer_and_label() -> None:
     ]
 
 
-def test_target_metric_reports_missing_metric_in_named_scorer() -> None:
+def test_target_metric_reports_missing_metric_in_named_score() -> None:
     rows = prepare_log_results(
         scorer_results_log(),
-        [accuracy_target(scorer="combined", label="combined accuracy")],
+        [accuracy_target(score_name="combined", label="combined accuracy")],
         log_progress=False,
     )
 
     assert [(row["Metric"], row["Score"]) for row in rows] == [
         (
             "combined accuracy (%) ⬇️",
-            "Metric 'accuracy' not found in scorer 'combined'",
+            "Metric 'accuracy' not found in score 'combined'",
         ),
+    ]
+
+
+def test_target_metric_reports_missing_score() -> None:
+    rows = prepare_log_results(
+        scorer_results_log(),
+        [accuracy_target(score_name="secuirty", label="attack success rate")],
+        log_progress=False,
+    )
+
+    assert [(row["Metric"], row["Score"]) for row in rows] == [
+        ("attack success rate (%) ⬇️", "Score 'secuirty' not found"),
     ]
 
 
 def test_failed_runs_use_target_labels() -> None:
     rows = prepare_log_results(
         scorer_results_log(status="error"),
-        [accuracy_target(scorer="security", label="attack success rate")],
+        [accuracy_target(score_name="security", label="attack success rate")],
         log_progress=False,
     )
 
