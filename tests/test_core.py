@@ -152,6 +152,18 @@ def test_load_logs_ignores_suffix_matching_directories_in_strict_mode(
     assert loaded == [str(log_path)]
 
 
+def test_load_logs_warns_when_no_logs_are_discovered(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "my_custom_name.json").write_text("{}", encoding="utf-8")
+
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == []
+
+    assert "No Inspect logs found" in caplog.text
+    assert "--log-files" in caplog.text
+
+
 def test_load_logs_ignores_non_log_json_files_in_strict_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -136,7 +136,16 @@ def _discover_log_paths(
         return len(_SUPPORTED_LOG_SUFFIXES)
 
     # A stable sort keeps Inspect's ordering within each format.
-    return sorted((log_info.name for log_info in log_infos), key=format_rank)
+    sources = sorted((log_info.name for log_info in log_infos), key=format_rank)
+    if not sources:
+        logger.warning(
+            "⚠️ No Inspect logs found in %s. A %s log is discovered only when its "
+            "name follows Inspect's timestamped log naming; pass it through "
+            "--log-files instead if it is a log.",
+            _display_log_source(log_dir),
+            ", ".join(_SUPPORTED_LOG_SUFFIXES[1:]),
+        )
+    return sources
 
 
 def _resolve_log_path(log_file: str) -> Path:
