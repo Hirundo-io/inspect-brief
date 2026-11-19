@@ -7,9 +7,10 @@ from pathlib import Path
 
 from inspect_brief.core import (
     InspectScore,
-    _eval_log_source_key,
     _is_log_uri,
+    _log_source_key,
     target_metric_name,
+    validate_log_suffix,
 )
 
 _REQUIRED_SCORE_KEYS = frozenset(InspectScore.__required_keys__)
@@ -99,7 +100,7 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
 
     Args:
         values: Raw values, each of which may contain comma-separated paths or
-            filesystem URIs.
+            log URIs.
 
     Returns:
         Resolved local paths and unchanged filesystem URIs, or None when no
@@ -119,13 +120,12 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
     resolved_log_files: list[str] = []
     for value in log_files:
         if _is_log_uri(value):
-            _eval_log_source_key(value)
+            _log_source_key(value)
             resolved_log_files.append(value)
             continue
 
         path = Path(value)
-        if path.suffix != ".eval":
-            raise ValueError("Inspect Brief currently supports only .eval log files")
+        validate_log_suffix(path.suffix)
         if not path.exists():
             raise ValueError(f"File {value!r} does not exist.")
         if not path.is_file():

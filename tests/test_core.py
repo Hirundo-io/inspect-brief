@@ -25,6 +25,11 @@ from inspect_brief.core import (
 )
 
 
+def inspect_log_name(stem: str, suffix: str) -> str:
+    """Name a file the way Inspect names logs, so directory discovery accepts it."""
+    return f"2026-11-19T12-00-00+00-00_{stem}{suffix}"
+
+
 def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
     """Create a deterministic Inspect log containing one accuracy metric."""
     return EvalLog(
@@ -116,18 +121,134 @@ def test_load_logs_combines_explicit_files_and_directory(
     tmp_path: Path,
 ) -> None:
     explicit = tmp_path / "explicit.eval"
-    discovered = tmp_path / "nested" / "discovered.eval"
+    discovered = tmp_path / "nested" / inspect_log_name("discovered", ".eval")
+    discovered_json = tmp_path / "nested" / inspect_log_name("discovered", ".json")
     discovered.parent.mkdir()
     explicit.touch()
     discovered.touch()
+    discovered_json.touch()
     loaded: list[str] = []
     monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
 
     assert load_logs(str(tmp_path), [str(explicit)], False) == [
         str(explicit),
         str(discovered),
+        str(discovered_json),
     ]
-    assert loaded == [str(explicit), str(discovered)]
+    assert loaded == [str(explicit), str(discovered), str(discovered_json)]
+
+
+def test_load_logs_ignores_suffix_matching_directories_in_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    (tmp_path / "artifacts.json").mkdir()
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == [str(log_path)]
+    assert loaded == [str(log_path)]
+
+
+def test_load_logs_warns_when_no_logs_are_discovered(
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "my_custom_name.json").write_text("{}", encoding="utf-8")
+
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == []
+
+    assert "No Inspect logs found" in caplog.text
+    assert "--log-files" in caplog.text
+
+
+def test_load_logs_ignores_non_log_json_files_in_strict_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    log_path = tmp_path / "run.eval"
+    log_path.touch()
+    for name in ("logs.json", "eval-set.json", "target_metrics.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
+    loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
+
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == [str(log_path)]
+    assert loaded == [str(log_path)]
+
+
+def test_load_logs_reads_real_inspect_json_log(tmp_path: Path) -> None:
+    log_path = tmp_path / "run.json"
+    core.write_eval_log(
+        evaluation_log("task-a", "run-a", 0.75),
+        log_path,
+        format="json",
+    )
+
+    loaded_logs = load_logs(log_files=str(log_path))
+
+    assert len(loaded_logs) == 1
+    assert loaded_logs[0].eval.task == "task-a"
+    assert loaded_logs[0].eval.task_id == "run-a"
+    assert loaded_logs[0].results is not None
+    assert loaded_logs[0].results.scores[0].metrics["accuracy"].value == pytest.approx(
+        0.75,
+    )
+
+
+def test_eval_and_json_inputs_produce_equivalent_csv(tmp_path: Path) -> None:
+    log = evaluation_log("task-a", "run-a", 0.75)
+    eval_log_path = tmp_path / "run.eval"
+    json_log_path = tmp_path / "run.json"
+    eval_csv_path = tmp_path / "eval.csv"
+    json_csv_path = tmp_path / "json.csv"
+    core.write_eval_log(log, eval_log_path)
+    core.write_eval_log(log, json_log_path, format="json")
+
+    export_results(
+        log_files=str(eval_log_path),
+        csv_path=str(eval_csv_path),
+        fail_on_log_error=True,
+        log_progress=False,
+    )
+    export_results(
+        log_files=str(json_log_path),
+        csv_path=str(json_csv_path),
+        fail_on_log_error=True,
+        log_progress=False,
+    )
+
+    assert json_csv_path.read_bytes() == eval_csv_path.read_bytes()
+
+
+def test_one_run_stored_as_eval_and_json_is_reported_once(tmp_path: Path) -> None:
+    log = evaluation_log("task-a", "run-a", 0.75)
+    core.write_eval_log(log, tmp_path / inspect_log_name("run", ".eval"))
+    core.write_eval_log(
+        log,
+        tmp_path / inspect_log_name("run", ".json"),
+        format="json",
+    )
+
+    rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
+
+    assert [(row["Run ID"], row["Metric"]) for row in rows] == [("run-a", "accuracy")]
+
+
+def test_distinct_runs_sharing_a_file_name_are_both_reported(tmp_path: Path) -> None:
+    for run_id in ("run-a", "run-b"):
+        run_dir = tmp_path / run_id
+        run_dir.mkdir()
+        core.write_eval_log(
+            evaluation_log("task-a", run_id, 0.75),
+            run_dir / inspect_log_name("run", ".eval"),
+        )
+
+    rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
+
+    assert sorted(row["Run ID"] for row in rows) == ["run-a", "run-b"]
 
 
 def test_load_logs_deduplicates_equivalent_paths(
@@ -200,6 +321,52 @@ def test_load_logs_exports_json_beside_remote_log(
     load_logs(log_files=log_uri, export_jsons=True)
 
     assert exported == ["s3://inspect-logs/run.json"]
+
+
+@pytest.mark.parametrize(
+    "log_file",
+    [
+        pytest.param("run.json", id="local"),
+        pytest.param("s3://inspect-logs/run.json", id="provider-uri"),
+    ],
+)
+def test_load_logs_does_not_overwrite_json_input_when_exporting_sidecars(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    log_file: str,
+) -> None:
+    if "://" not in log_file:
+        log_file = str(tmp_path / log_file)
+        Path(log_file).touch()
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda *_args, **_kwargs: pytest.fail("JSON input must not be rewritten"),
+    )
+
+    assert load_logs(log_files=log_file, export_jsons=True)
+
+
+def test_load_logs_redacts_uri_credentials_from_directory_scan_errors(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = "https://alice:password@example.com/logs?token=secret#private"
+    monkeypatch.setattr(
+        core,
+        "list_eval_logs",
+        lambda *_, **__: (_ for _ in ()).throw(OSError(log_dir)),
+    )
+
+    with pytest.raises(ValueError, match="directory scan") as error:
+        load_logs(log_dir=log_dir, fail_on_error=True)
+
+    assert "https://example.com/logs" in caplog.text
+    assert "https://example.com/logs" in str(error.value)
+    for secret in ("alice", "password", "token", "secret", "private"):
+        assert secret not in caplog.text
+        assert secret not in str(error.value)
 
 
 def test_load_logs_redacts_uri_credentials_from_diagnostics(
@@ -275,11 +442,11 @@ def test_load_logs_skips_malformed_uris_and_continues(
     assert loaded == [str(valid)]
 
 
-def test_load_logs_rejects_non_eval_files(
+def test_load_logs_rejects_unsupported_files(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    unsupported = tmp_path / "run.json"
+    unsupported = tmp_path / "run.txt"
     supported = tmp_path / "run.eval"
     unsupported.touch()
     supported.touch()
@@ -295,7 +462,7 @@ def test_load_logs_rejects_non_eval_files(
     assert isinstance(error.value.__cause__, ValueError)
     assert (
         str(error.value.__cause__)
-        == "Inspect Brief currently supports only .eval log files"
+        == "Inspect Brief supports only .eval and .json log files"
     )
 
 
@@ -306,9 +473,9 @@ def test_load_logs_handles_directory_scan_errors(
     explicit = tmp_path / "explicit.eval"
     explicit.touch()
     monkeypatch.setattr(
-        core.Path,
-        "rglob",
-        lambda *_: (_ for _ in ()).throw(OSError("scan unavailable")),
+        core,
+        "list_eval_logs",
+        lambda *_, **__: (_ for _ in ()).throw(OSError("scan unavailable")),
     )
     monkeypatch.setattr(core, "read_eval_log", lambda path: path)
 
@@ -650,3 +817,111 @@ def test_header_migration_preserves_original_when_rewrite_fails(
 
     assert csv_path.read_text(encoding="utf-8") == original
     assert list(tmp_path.glob(".brief.csv.*.tmp")) == []
+
+
+@pytest.mark.parametrize(
+    "input_kind",
+    [
+        "eval-first",
+        "json-first",
+        "directory",
+        "file-uri",
+        "native-file-uri",
+        "symlink",
+        "destination-symlink",
+        "hardlink",
+    ],
+)
+def test_load_logs_preserves_json_input_colliding_with_sidecar(
+    tmp_path: Path,
+    input_kind: str,
+) -> None:
+    native_path = tmp_path / inspect_log_name("run", ".eval")
+    json_path = tmp_path / inspect_log_name("run", ".json")
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    core.write_eval_log(
+        evaluation_log("json", "json-run", 0.75),
+        json_path,
+        format="json",
+    )
+    original_json = json_path.read_bytes()
+    json_source = str(json_path)
+    if input_kind == "file-uri":
+        json_source = json_path.as_uri()
+    elif input_kind in {"symlink", "hardlink"}:
+        alias_path = tmp_path / "alias.json"
+        if input_kind == "symlink":
+            alias_path.symlink_to(json_path)
+        else:
+            alias_path.hardlink_to(json_path)
+        json_source = str(alias_path)
+    elif input_kind == "destination-symlink":
+        original_path = tmp_path / "original.json"
+        json_path.rename(original_path)
+        json_path.symlink_to(original_path)
+        json_source = str(original_path)
+    native_source = (
+        native_path.as_uri() if input_kind == "native-file-uri" else str(native_path)
+    )
+    sources = [native_source, json_source]
+    if input_kind == "json-first":
+        sources.reverse()
+    logs = load_logs(
+        log_dir=str(tmp_path) if input_kind == "directory" else None,
+        log_files=None if input_kind == "directory" else sources,
+        export_jsons=True,
+        fail_on_error=True,
+    )
+
+    assert json_path.read_bytes() == original_json
+    assert sorted(log.eval.task_id for log in logs) == ["json-run", "native-run"]
+
+
+def test_load_logs_skips_remote_sidecar_colliding_with_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sources = ["s3://inspect-logs/run.eval", "s3://inspect-logs/run.json"]
+    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
+    monkeypatch.setattr(
+        core,
+        "write_eval_log",
+        lambda *_args, **_kwargs: pytest.fail("Input must not be overwritten"),
+    )
+
+    assert (
+        load_logs(log_files=sources, export_jsons=True, fail_on_error=True) == sources
+    )
+
+
+def test_load_logs_does_not_write_through_dangling_sidecar_symlink(
+    tmp_path: Path,
+) -> None:
+    native_path = tmp_path / inspect_log_name("run", ".eval")
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    outside_target = tmp_path / "outside" / "clobbered.json"
+    outside_target.parent.mkdir()
+    sidecar_path = tmp_path / inspect_log_name("run", ".json")
+    sidecar_path.symlink_to(outside_target)
+
+    load_logs(log_files=str(native_path), export_jsons=True, fail_on_error=True)
+
+    assert not outside_target.exists()
+
+
+def test_load_logs_preserves_unreadable_input_colliding_with_sidecar(
+    tmp_path: Path,
+) -> None:
+    native_path = tmp_path / "run.eval"
+    json_path = tmp_path / "run.json"
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    json_path.write_text("not valid JSON", encoding="utf-8")
+    original_json = json_path.read_bytes()
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log"):
+        load_logs(
+            log_files=[str(native_path), str(json_path)],
+            export_jsons=True,
+            fail_on_error=True,
+        )
+
+    assert json_path.read_bytes() == original_json

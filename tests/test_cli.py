@@ -118,13 +118,13 @@ def test_cli_accepts_repeatable_and_comma_separated_tasks(
     [
         pytest.param(["first.eval"], ["first.eval"], id="single"),
         pytest.param(
-            ["first.eval", "second.eval"],
-            ["first.eval", "second.eval"],
+            ["first.eval", "second.json"],
+            ["first.eval", "second.json"],
             id="repeated",
         ),
         pytest.param(
-            ["first.eval,second.eval", "third.eval"],
-            ["first.eval", "second.eval", "third.eval"],
+            ["first.eval,second.json", "third.eval"],
+            ["first.eval", "second.json", "third.eval"],
             id="mixed",
         ),
     ],
@@ -167,11 +167,11 @@ def test_cli_accepts_filesystem_uri_log_sources(
 
     result = CliRunner().invoke(
         cli.app,
-        ["--log-files", "s3://bucket/remote.eval"],
+        ["--log-files", "s3://bucket/remote.json"],
     )
 
     assert result.exit_code == 0
-    assert exported["log_files"] == ["s3://bucket/remote.eval"]
+    assert exported["log_files"] == ["s3://bucket/remote.json"]
 
 
 @pytest.mark.parametrize("path_kind", ["missing", "directory"])
@@ -199,8 +199,8 @@ def test_cli_rejects_empty_log_file_values() -> None:
     assert "At least one log file path must be provided" in normalized_output
 
 
-def test_cli_rejects_non_eval_log_files_as_parameter_errors(tmp_path: Path) -> None:
-    log_path = tmp_path / "run.json"
+def test_cli_rejects_unsupported_log_files_as_parameter_errors(tmp_path: Path) -> None:
+    log_path = tmp_path / "run.txt"
     log_path.touch()
 
     result = CliRunner().invoke(cli.app, ["--log-files", str(log_path)])
@@ -208,7 +208,7 @@ def test_cli_rejects_non_eval_log_files_as_parameter_errors(tmp_path: Path) -> N
     assert result.exit_code == 2
     normalized_output = " ".join(strip_ansi(result.output).split())
     assert "Invalid value for --log-files" in normalized_output
-    assert "supports only .eval" in normalized_output
+    assert "supports only .eval and .json" in normalized_output
     assert "log files" in normalized_output
 
 
