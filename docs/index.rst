@@ -171,8 +171,11 @@ Results are appended to the CSV with the following columns:
 
 - **Created** comes from ``log.eval.created``, falling back to
   ``log.stats.started_at``.
-- **Score** is formatted to 2 decimal places when greater than ``1.0``,
-  otherwise 4 decimal places.
+- **Score** is formatted to 2 decimal places for metrics configured with
+  ``is_percentage``, otherwise 4 decimal places. The precision follows the
+  metric configuration, not the value, so one metric reads the same throughout
+  a report. Metrics read straight from a log, when no target metrics are
+  configured, carry no percentage flag and use 4 decimal places.
 - Failed or incomplete runs record a status string in the Score column when
   applicable.
 

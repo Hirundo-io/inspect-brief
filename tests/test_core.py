@@ -502,11 +502,11 @@ def scorer_results_log(status: Literal["success", "error"] = "success") -> EvalL
     return log
 
 
-def accuracy_target(**options: str) -> InspectScore:
-    """Create a normalized percentage accuracy target with optional keys."""
+def accuracy_target(is_percentage: bool = True, **options: str) -> InspectScore:
+    """Create a normalized accuracy target with optional keys."""
     target = InspectScore(
         name="accuracy",
-        is_percentage=True,
+        is_percentage=is_percentage,
         is_higher_better=False,
         is_normalized=True,
     )
@@ -574,6 +574,53 @@ def test_failed_runs_use_target_labels() -> None:
 
 def test_empty_target_metric_selection_exports_no_rows() -> None:
     assert prepare_log_results(evaluation_log("task-a", "run-a", 1.0), []) == []
+
+
+def test_percentage_metric_scores_share_one_precision(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+
+    export_results(
+        logs=[
+            evaluation_log("task-a", "run-a", 1.0),
+            evaluation_log("task-a", "run-b", 0.0),
+        ],
+        target_metrics={"task-a": [accuracy_target()]},
+        csv_path=str(csv_path),
+        log_progress=False,
+    )
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert [row["Score"] for row in rows] == ["100.00", "0.00"]
+
+
+def test_non_percentage_metric_scores_share_one_precision(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+
+    export_results(
+        logs=[
+            evaluation_log("task-a", "run-a", 2.5),
+            evaluation_log("task-a", "run-b", 0.5),
+        ],
+        target_metrics={"task-a": [accuracy_target(is_percentage=False)]},
+        csv_path=str(csv_path),
+        log_progress=False,
+    )
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert [row["Score"] for row in rows] == ["2.5000", "0.5000"]
+
+
+def test_unconfigured_metric_scores_use_raw_precision(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+
+    export_results(
+        logs=[evaluation_log("task-a", "run-a", 2.5)],
+        csv_path=str(csv_path),
+        log_progress=False,
+    )
+
+    rows = list(csv.DictReader(csv_path.open(encoding="utf-8")))
+    assert [row["Score"] for row in rows] == ["2.5000"]
 
 
 def test_export_escapes_formula_cells_and_migrates_header_only_csv(
