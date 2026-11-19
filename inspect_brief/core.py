@@ -7,16 +7,39 @@ import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import NotRequired, Protocol, TypedDict, get_type_hints
+from typing import Literal, NotRequired, Protocol, TypedDict, get_type_hints
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import url2pathname
 
-from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
+from inspect_ai.log import (
+    EvalLog,
+    EvalScore,
+    list_eval_logs,
+    read_eval_log,
+    write_eval_log,
+)
 
 logger = logging.getLogger(__name__)
 
-_SUPPORTED_LOG_SUFFIXES = (".eval", ".json")
+_SUPPORTED_LOG_FORMATS: tuple[Literal["eval", "json"], ...] = ("eval", "json")
+_SUPPORTED_LOG_SUFFIXES = tuple(
+    f".{log_format}" for log_format in _SUPPORTED_LOG_FORMATS
+)
 _SUPPORTED_LOG_ERROR = "Inspect Brief supports only .eval and .json log files"
+
+
+def validate_log_suffix(suffix: str) -> None:
+    """Reject a log source that is not in a supported Inspect log format.
+
+    Args:
+        suffix: File suffix of the log source, including the leading dot.
+
+    Raises:
+        ValueError: If the suffix is not a supported Inspect log format.
+
+    """
+    if suffix not in _SUPPORTED_LOG_SUFFIXES:
+        raise ValueError(_SUPPORTED_LOG_ERROR)
 
 
 class ProgressCallback(Protocol):
@@ -75,45 +98,54 @@ def _discover_log_paths(
     log_dir: str,
     load_errors: list[tuple[str, Exception]],
 ) -> list[str]:
-    """Recursively discover evaluation-log paths while recording scan failures.
+    """Recursively discover evaluation-log sources while recording scan failures.
+
+    Discovery defers to Inspect's own listing, which accepts `.eval` logs by
+    suffix but requires Inspect's timestamped log name for other formats. Files
+    that merely sit beside the logs, such as an eval-set manifest or a
+    target-metrics file, are therefore left alone.
 
     Args:
         log_dir: Directory to scan recursively for evaluation logs.
         load_errors: Mutable collection that receives directory scan failures.
 
     Returns:
-        Discovered `.eval` and `.json` file paths, or an empty list when scanning
-        fails.
+        Discovered log sources ordered by format, so a run stored in both
+        formats is read from its native `.eval` log, or an empty list when
+        scanning fails.
 
     """
     try:
-        return [
-            str(path)
-            for suffix in _SUPPORTED_LOG_SUFFIXES
-            for path in Path(log_dir).rglob(f"*{suffix}")
-            if path.is_file()
-        ]
-    except OSError as error:
+        log_infos = list_eval_logs(log_dir, formats=list(_SUPPORTED_LOG_FORMATS))
+    # Inspect lists through fsspec, whose backends raise provider-specific errors.
+    except Exception as error:  # ruff: ignore[blind-except]
         logger.warning("❌ Could not scan Inspect log directory %s: %s", log_dir, error)
         load_errors.append((f"{log_dir} (directory scan)", error))
         return []
 
+    def format_rank(source: str) -> int:
+        suffix = PurePosixPath(urlsplit(source).path).suffix
+        if suffix in _SUPPORTED_LOG_SUFFIXES:
+            return _SUPPORTED_LOG_SUFFIXES.index(suffix)
+        return len(_SUPPORTED_LOG_SUFFIXES)
+
+    # A stable sort keeps Inspect's ordering within each format.
+    return sorted((log_info.name for log_info in log_infos), key=format_rank)
+
 
 def _resolve_log_path(log_file: str) -> Path:
     """Validate and resolve a local Inspect evaluation-log path.
+
+    Unsupported log formats are rejected by ``validate_log_suffix``.
 
     Args:
         log_file: Path supplied to the log loader.
 
     Returns:
         The canonical path to the `.eval` or `.json` log.
-
-    Raises:
-        ValueError: If the supplied path is not a supported log file.
     """
     path = Path(log_file)
-    if path.suffix not in _SUPPORTED_LOG_SUFFIXES:
-        raise ValueError(_SUPPORTED_LOG_ERROR)
+    validate_log_suffix(path.suffix)
     return path.resolve(strict=True)
 
 
@@ -185,21 +217,19 @@ def _redact_log_error(log_file: str, error: Exception) -> Exception:
 def _log_source_key(log_file: str) -> str | Path:
     """Validate a log source and return its stable deduplication key.
 
+    Unsupported log formats are rejected by ``validate_log_suffix``.
+
     Args:
         log_file: Local path or filesystem URI supplied to the loader.
 
     Returns:
         The unchanged URI for remote/provider sources, or the canonical local path.
-
-    Raises:
-        ValueError: If the supplied source is not a supported log.
     """
     if _is_log_uri(log_file):
         parsed = urlsplit(log_file)
         if parsed.scheme == "file":
             return _resolve_file_uri_path(log_file)
-        if PurePosixPath(parsed.path).suffix not in _SUPPORTED_LOG_SUFFIXES:
-            raise ValueError(_SUPPORTED_LOG_ERROR)
+        validate_log_suffix(PurePosixPath(parsed.path).suffix)
         return log_file
 
     return _resolve_log_path(log_file)
@@ -248,12 +278,15 @@ def _sidecar_overwrites_input(
         source_keys: Canonical local paths and provider URIs of the inputs.
 
     Returns:
-        Whether the destination aliases an input, including local hardlinks.
+        Whether writing the sidecar would reach an input, including through
+        local hardlinks and symlinks.
     """
     try:
         destination_key = _log_source_key(str(destination))
     except FileNotFoundError:
-        return False
+        # A dangling symlink resolves to nothing, but writing to it still
+        # follows the link and creates or overwrites whatever it points at.
+        return Path(destination).is_symlink()
     if destination_key in source_keys:
         return True
     if isinstance(destination_key, Path):
@@ -295,7 +328,8 @@ def _export_log_json(
         destination = _json_sidecar_path(log_file)
         if _sidecar_overwrites_input(destination, source_keys):
             logger.warning(
-                "Skipping JSON sidecar for %s: destination aliases an input log",
+                "Skipping JSON sidecar for %s: destination is a symlink or "
+                "aliases an input log",
                 display_source,
             )
             return

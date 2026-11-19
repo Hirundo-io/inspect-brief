@@ -123,7 +123,12 @@ need to process existing logs again.
 At least one of `--log-dir` or `--log-files` is required:
 
 - `--log-dir` recursively discovers `.eval` and `.json` logs under a directory.
-- `--log-files` accepts one or more explicit `.eval` or `.json` paths and URIs.
+  A `.json` file is only treated as a log when its name follows Inspect's
+  timestamped log naming, so eval-set manifests (`logs.json`, `eval-set.json`)
+  and other JSON files kept beside the logs are left alone. A run stored in both
+  formats is read once, from its `.eval` log.
+- `--log-files` accepts one or more explicit `.eval` or `.json` paths and URIs,
+  whatever the file is named.
   Repeat the option, separate sources with commas, or combine both forms.
 - Supplying both combines the discovered and explicit logs and removes duplicates.
 
@@ -145,7 +150,7 @@ uvx inspect-brief [OPTIONS]
 
 | Option | Description |
 | --- | --- |
-| `--log-dir` | Directory containing Inspect logs; recursively finds `.eval` and `.json` files and combines them with `--log-files` when both are supplied |
+| `--log-dir` | Directory containing Inspect logs; recursively finds `.eval` logs and Inspect-named `.json` logs, and combines them with `--log-files` when both are supplied |
 | `--log-files` | One or more explicit `.eval` or `.json` paths and URIs (repeatable or comma-separated); combines them with logs found by `--log-dir` when both are supplied |
 | `--tasks` | Tasks to include (repeatable or comma-separated); others are skipped |
 | `--target-metrics` | JSON object (or path to a JSON file) mapping task → list of `InspectScore` objects |

@@ -6,12 +6,11 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from inspect_brief.core import (
-    _SUPPORTED_LOG_ERROR,
-    _SUPPORTED_LOG_SUFFIXES,
     InspectScore,
     _is_log_uri,
     _log_source_key,
     target_metric_name,
+    validate_log_suffix,
 )
 
 _REQUIRED_SCORE_KEYS = frozenset(InspectScore.__required_keys__)
@@ -126,8 +125,7 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
             continue
 
         path = Path(value)
-        if path.suffix not in _SUPPORTED_LOG_SUFFIXES:
-            raise ValueError(_SUPPORTED_LOG_ERROR)
+        validate_log_suffix(path.suffix)
         if not path.exists():
             raise ValueError(f"File {value!r} does not exist.")
         if not path.is_file():

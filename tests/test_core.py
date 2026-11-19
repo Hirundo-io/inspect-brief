@@ -25,6 +25,11 @@ from inspect_brief.core import (
 )
 
 
+def inspect_log_name(stem: str, suffix: str) -> str:
+    """Name a file the way Inspect names logs, so directory discovery accepts it."""
+    return f"2026-11-19T12-00-00+00-00_{stem}{suffix}"
+
+
 def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
     """Create a deterministic Inspect log containing one accuracy metric."""
     return EvalLog(
@@ -116,8 +121,8 @@ def test_load_logs_combines_explicit_files_and_directory(
     tmp_path: Path,
 ) -> None:
     explicit = tmp_path / "explicit.eval"
-    discovered = tmp_path / "nested" / "discovered.eval"
-    discovered_json = tmp_path / "nested" / "discovered.json"
+    discovered = tmp_path / "nested" / inspect_log_name("discovered", ".eval")
+    discovered_json = tmp_path / "nested" / inspect_log_name("discovered", ".json")
     discovered.parent.mkdir()
     explicit.touch()
     discovered.touch()
@@ -147,28 +152,19 @@ def test_load_logs_ignores_suffix_matching_directories_in_strict_mode(
     assert loaded == [str(log_path)]
 
 
-def test_load_logs_rejects_unrelated_discovered_json_in_strict_mode(
+def test_load_logs_ignores_non_log_json_files_in_strict_mode(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     log_path = tmp_path / "run.eval"
-    metadata_path = tmp_path / "metadata.json"
     log_path.touch()
-    metadata_path.write_text("{}", encoding="utf-8")
+    for name in ("logs.json", "eval-set.json", "target_metrics.json"):
+        (tmp_path / name).write_text("{}", encoding="utf-8")
     loaded: list[str] = []
+    monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
 
-    def read_log(path: str) -> str:
-        loaded.append(path)
-        if path == str(metadata_path):
-            raise ValueError("not an Inspect log")
-        return path
-
-    monkeypatch.setattr(core, "read_eval_log", read_log)
-
-    with pytest.raises(ValueError, match="Could not load 1 Inspect log"):
-        load_logs(log_dir=str(tmp_path), fail_on_error=True)
-
-    assert loaded == [str(log_path), str(metadata_path)]
+    assert load_logs(log_dir=str(tmp_path), fail_on_error=True) == [str(log_path)]
+    assert loaded == [str(log_path)]
 
 
 def test_load_logs_reads_real_inspect_json_log(tmp_path: Path) -> None:
@@ -217,8 +213,12 @@ def test_eval_and_json_inputs_produce_equivalent_csv(tmp_path: Path) -> None:
 
 def test_one_run_stored_as_eval_and_json_is_reported_once(tmp_path: Path) -> None:
     log = evaluation_log("task-a", "run-a", 0.75)
-    core.write_eval_log(log, tmp_path / "run.eval")
-    core.write_eval_log(log, tmp_path / "run.json", format="json")
+    core.write_eval_log(log, tmp_path / inspect_log_name("run", ".eval"))
+    core.write_eval_log(
+        log,
+        tmp_path / inspect_log_name("run", ".json"),
+        format="json",
+    )
 
     rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
 
@@ -231,7 +231,7 @@ def test_distinct_runs_sharing_a_file_name_are_both_reported(tmp_path: Path) -> 
         run_dir.mkdir()
         core.write_eval_log(
             evaluation_log("task-a", run_id, 0.75),
-            run_dir / "run.eval",
+            run_dir / inspect_log_name("run", ".eval"),
         )
 
     rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
@@ -440,9 +440,9 @@ def test_load_logs_handles_directory_scan_errors(
     explicit = tmp_path / "explicit.eval"
     explicit.touch()
     monkeypatch.setattr(
-        core.Path,
-        "rglob",
-        lambda *_: (_ for _ in ()).throw(OSError("scan unavailable")),
+        core,
+        "list_eval_logs",
+        lambda *_, **__: (_ for _ in ()).throw(OSError("scan unavailable")),
     )
     monkeypatch.setattr(core, "read_eval_log", lambda path: path)
 
@@ -803,8 +803,8 @@ def test_load_logs_preserves_json_input_colliding_with_sidecar(
     tmp_path: Path,
     input_kind: str,
 ) -> None:
-    native_path = tmp_path / "run.eval"
-    json_path = tmp_path / "run.json"
+    native_path = tmp_path / inspect_log_name("run", ".eval")
+    json_path = tmp_path / inspect_log_name("run", ".json")
     core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
     core.write_eval_log(
         evaluation_log("json", "json-run", 0.75),
@@ -858,6 +858,21 @@ def test_load_logs_skips_remote_sidecar_colliding_with_input(
     assert (
         load_logs(log_files=sources, export_jsons=True, fail_on_error=True) == sources
     )
+
+
+def test_load_logs_does_not_write_through_dangling_sidecar_symlink(
+    tmp_path: Path,
+) -> None:
+    native_path = tmp_path / inspect_log_name("run", ".eval")
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
+    outside_target = tmp_path / "outside" / "clobbered.json"
+    outside_target.parent.mkdir()
+    sidecar_path = tmp_path / inspect_log_name("run", ".json")
+    sidecar_path.symlink_to(outside_target)
+
+    load_logs(log_files=str(native_path), export_jsons=True, fail_on_error=True)
+
+    assert not outside_target.exists()
 
 
 def test_load_logs_preserves_unreadable_input_colliding_with_sidecar(

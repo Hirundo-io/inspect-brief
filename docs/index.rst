@@ -67,7 +67,10 @@ Manual export with the CLI
 At least one of ``--log-dir`` or ``--log-files`` is required:
 
 - ``--log-dir`` recursively discovers ``.eval`` and ``.json`` logs under a
-  directory.
+  directory. A ``.json`` file is only treated as a log when its name follows
+  Inspect's timestamped log naming, so eval-set manifests (``logs.json``,
+  ``eval-set.json``) and other JSON files kept beside the logs are left alone.
+  A run stored in both formats is read once, from its ``.eval`` log.
 - ``--log-files`` accepts one or more explicit ``.eval`` or ``.json`` paths and
   URIs. Repeat the option, separate sources with commas, or combine both forms.
 - Supplying both combines the discovered and explicit logs and removes
@@ -93,9 +96,9 @@ CLI options
    * - Option
      - Description
    * - ``--log-dir``
-     - Directory containing Inspect logs; recursively finds ``.eval`` and
-       ``.json`` files and combines them with ``--log-files`` when both are
-       supplied.
+     - Directory containing Inspect logs; recursively finds ``.eval`` logs and
+       Inspect-named ``.json`` logs, and combines them with ``--log-files``
+       when both are supplied.
    * - ``--log-files``
      - One or more explicit ``.eval`` or ``.json`` paths and URIs (repeatable
        or comma-separated).
