@@ -336,6 +336,27 @@ def test_load_logs_does_not_overwrite_json_input_when_exporting_sidecars(
     assert load_logs(log_files=log_file, export_jsons=True)
 
 
+def test_load_logs_redacts_uri_credentials_from_directory_scan_errors(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log_dir = "https://alice:password@example.com/logs?token=secret#private"
+    monkeypatch.setattr(
+        core,
+        "list_eval_logs",
+        lambda *_, **__: (_ for _ in ()).throw(OSError(log_dir)),
+    )
+
+    with pytest.raises(ValueError, match="directory scan") as error:
+        load_logs(log_dir=log_dir, fail_on_error=True)
+
+    assert "https://example.com/logs" in caplog.text
+    assert "https://example.com/logs" in str(error.value)
+    for secret in ("alice", "password", "token", "secret", "private"):
+        assert secret not in caplog.text
+        assert secret not in str(error.value)
+
+
 def test_load_logs_redacts_uri_credentials_from_diagnostics(
     caplog: pytest.LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,

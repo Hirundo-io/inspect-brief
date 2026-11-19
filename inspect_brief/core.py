@@ -119,8 +119,14 @@ def _discover_log_paths(
         log_infos = list_eval_logs(log_dir, formats=list(_SUPPORTED_LOG_FORMATS))
     # Inspect lists through fsspec, whose backends raise provider-specific errors.
     except Exception as error:  # ruff: ignore[blind-except]
-        logger.warning("❌ Could not scan Inspect log directory %s: %s", log_dir, error)
-        load_errors.append((f"{log_dir} (directory scan)", error))
+        display_dir = _display_log_source(log_dir)
+        error = _redact_log_error(log_dir, error)
+        logger.warning(
+            "❌ Could not scan Inspect log directory %s: %s",
+            display_dir,
+            error,
+        )
+        load_errors.append((f"{display_dir} (directory scan)", error))
         return []
 
     def format_rank(source: str) -> int:
