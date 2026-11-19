@@ -15,6 +15,11 @@ from inspect_ai.log import EvalLog, EvalScore, read_eval_log, write_eval_log
 
 logger = logging.getLogger(__name__)
 
+#: Decimal places used for scores of metrics configured as percentages.
+PERCENTAGE_SCORE_PRECISION = 2
+#: Decimal places used for every other numeric score.
+RAW_SCORE_PRECISION = 4
+
 
 class ProgressCallback(Protocol):
     """Receive progress updates while Inspect logs are prepared."""
@@ -680,19 +685,62 @@ def desanitize_csv_value(value: str) -> str:
     return value
 
 
-def format_output_row(row: OutputEntry) -> dict[str, object]:
+def percentage_metric_labels(
+    target_metrics: dict[str, list[InspectScore]] | None,
+) -> frozenset[str]:
+    """Collect the CSV metric labels whose scores are percentages.
+
+    Labels are collected across every task, which stays unambiguous because
+    `target_metric_name` annotates percentage metrics with a ` (%)` suffix, so
+    two tasks cannot share a label while disagreeing on `is_percentage`.
+
+    Args:
+        target_metrics: The configured metric definitions by task, if any.
+
+    Returns:
+        The `Metric` column values of the configured percentage metrics. Empty
+        when no metrics are configured, because metrics read straight from a log
+        carry no percentage configuration.
+
+    """
+    if not target_metrics:
+        return frozenset()
+
+    return frozenset(
+        target_metric_name(target_metric)
+        for task_target_metrics in target_metrics.values()
+        for target_metric in task_target_metrics
+        if target_metric["is_percentage"]
+    )
+
+
+def format_output_row(
+    row: OutputEntry,
+    percentage_metrics: frozenset[str],
+) -> dict[str, object]:
     """Format an output row for stable CSV presentation.
+
+    The score precision follows the metric's configuration rather than the
+    score's magnitude, so every row of a given metric is written alike.
 
     Args:
         row: The unformatted CSV output row.
+        percentage_metrics: The `Metric` column values whose scores are
+            percentages, as returned by `percentage_metric_labels`.
 
     Returns:
         A copy of the row with numeric score values formatted as strings.
+
     """
     formatted_row = dict(row)
     score = formatted_row.get("Score")
     if isinstance(score, int | float):
-        formatted_row["Score"] = f"{score:.2f}" if score > 1.0 else f"{score:.4f}"
+        precision = (
+            PERCENTAGE_SCORE_PRECISION
+            if formatted_row.get("Metric") in percentage_metrics
+            else RAW_SCORE_PRECISION
+        )
+        formatted_row["Score"] = f"{score:.{precision}f}"
 
     return {key: sanitize_csv_value(value) for key, value in formatted_row.items()}
 
@@ -875,8 +923,9 @@ def export_results(
     if log_progress:
         logger.info("⏭️ Skipping runs with existing Run IDs: %s", set(task_ids_to_skip))
     # Prepare the results for CSV export
+    percentage_metrics = percentage_metric_labels(target_metrics)
     results = [
-        format_output_row(row)
+        format_output_row(row, percentage_metrics)
         for row in prepare_results(
             log_dir=log_dir,
             log_files=log_files,
