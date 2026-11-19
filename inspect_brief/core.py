@@ -7,7 +7,7 @@ import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
-from typing import Protocol, TypedDict, get_type_hints
+from typing import NotRequired, Protocol, TypedDict, get_type_hints
 from urllib.parse import urlsplit, urlunsplit
 from urllib.request import url2pathname
 
@@ -38,6 +38,12 @@ class InspectScore(TypedDict):
         is_higher_better: Whether a higher value is better.
         is_normalized: Whether the score is normalized. Relevant only for
             percentage scores.
+        score_name: Optional. Read the metric only from the score with this
+            name (``EvalScore.name``, not ``EvalScore.scorer``), for logs
+            where several scores report a metric with the same name.
+        label: Optional. The metric label written to the CSV in place of
+            ``name``; the percentage and direction annotations are still
+            added.
 
     """
 
@@ -45,6 +51,8 @@ class InspectScore(TypedDict):
     is_percentage: bool
     is_higher_better: bool
     is_normalized: bool
+    score_name: NotRequired[str]
+    label: NotRequired[str]
 
 
 OutputEntry = TypedDict(
@@ -332,7 +340,7 @@ def target_metric_name(target_metric: InspectScore) -> str:
         The metric name annotated with percentage and direction metadata.
 
     """
-    metric_name = target_metric["name"]
+    metric_name = target_metric.get("label", target_metric["name"])
     if target_metric["is_percentage"]:
         metric_name += " (%)"
 
@@ -403,7 +411,10 @@ def target_score_values(
     score_values: dict[str, float | str] = {}
     for target_metric in target_metrics:
         metric_name = target_metric_name(target_metric)
+        score_name = target_metric.get("score_name")
         for score in scores:
+            if score_name is not None and score.name != score_name:
+                continue
             if target_metric["name"] not in score.metrics:
                 continue
             metric_value = score.metrics[target_metric["name"]].value
@@ -412,7 +423,16 @@ def target_score_values(
             score_values[metric_name] = metric_value
             break
         else:
-            score_values[metric_name] = f"Metric '{target_metric['name']}' not found"
+            if score_name is None:
+                message = f"Metric '{target_metric['name']}' not found"
+            elif any(score.name == score_name for score in scores):
+                message = (
+                    f"Metric '{target_metric['name']}' not found in score "
+                    f"'{score_name}'"
+                )
+            else:
+                message = f"Score '{score_name}' not found"
+            score_values[metric_name] = message
 
     return score_values
 

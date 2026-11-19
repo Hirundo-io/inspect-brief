@@ -4,7 +4,6 @@ import json
 import os
 from collections.abc import Iterable
 from pathlib import Path
-from typing import get_type_hints
 
 from inspect_brief.core import (
     InspectScore,
@@ -13,7 +12,8 @@ from inspect_brief.core import (
     target_metric_name,
 )
 
-_INSPECT_SCORE_KEYS = set(get_type_hints(InspectScore))
+_REQUIRED_SCORE_KEYS = frozenset(InspectScore.__required_keys__)
+_OPTIONAL_SCORE_KEYS = frozenset(InspectScore.__optional_keys__)
 
 
 def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
@@ -31,14 +31,29 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
         ValueError: If the metric does not match the required schema.
 
     """
-    if not isinstance(metric, dict) or set(metric) != _INSPECT_SCORE_KEYS:
+    if not isinstance(metric, dict) or not (
+        _REQUIRED_SCORE_KEYS
+        <= set(metric)
+        <= _REQUIRED_SCORE_KEYS | _OPTIONAL_SCORE_KEYS
+    ):
         raise ValueError(
-            f"Metric {index} for task '{task}' must be an object with exactly "
-            f"keys {sorted(_INSPECT_SCORE_KEYS)}",
+            f"Metric {index} for task '{task}' must be an object with keys "
+            f"{sorted(_REQUIRED_SCORE_KEYS)} and optionally "
+            f"{sorted(_OPTIONAL_SCORE_KEYS)}",
         )
     if not isinstance(metric["name"], str):
         raise ValueError(f"Metric {index} for task '{task}' must have a string name")
-    boolean_keys = _INSPECT_SCORE_KEYS - {"name"}
+    invalid_optional_keys = [
+        key
+        for key in sorted(_OPTIONAL_SCORE_KEYS & set(metric))
+        if not isinstance(metric[key], str) or not metric[key].strip()
+    ]
+    if invalid_optional_keys:
+        raise ValueError(
+            f"Metric {index} for task '{task}' must use non-empty strings for "
+            f"{invalid_optional_keys}",
+        )
+    boolean_keys = _REQUIRED_SCORE_KEYS - {"name"}
     invalid_boolean_keys = [
         key for key in boolean_keys if type(metric[key]) is not bool
     ]
@@ -47,12 +62,17 @@ def _parse_metric(task: str, index: int, metric: object) -> InspectScore:
             f"Metric {index} for task '{task}' must use JSON booleans for "
             f"{sorted(invalid_boolean_keys)}",
         )
-    return InspectScore(
+    score = InspectScore(
         name=metric["name"],
         is_percentage=metric["is_percentage"],
         is_higher_better=metric["is_higher_better"],
         is_normalized=metric["is_normalized"],
     )
+    if "score_name" in metric:
+        score["score_name"] = metric["score_name"].strip()
+    if "label" in metric:
+        score["label"] = metric["label"].strip()
+    return score
 
 
 def parse_comma_separated(
@@ -151,7 +171,8 @@ def parse_target_metrics(
         raise ValueError(
             f"{source} {input_description} is not valid JSON. Expected a JSON "
             "object mapping task names to InspectScore objects with keys "
-            f"{sorted(_INSPECT_SCORE_KEYS)}",
+            f"{sorted(_REQUIRED_SCORE_KEYS)} and optionally "
+            f"{sorted(_OPTIONAL_SCORE_KEYS)}",
         ) from error
 
     if not isinstance(parsed, dict):
@@ -174,7 +195,8 @@ def parse_target_metrics(
             if label in metric_labels:
                 raise ValueError(
                     f"Metric {index} for task '{task}' duplicates the output label "
-                    f"of metric {metric_labels[label]}: {label!r}",
+                    f"of metric {metric_labels[label]}: {label!r}. Give one of "
+                    "them a distinct 'label'",
                 )
             metric_labels[label] = index
             scores.append(score)
