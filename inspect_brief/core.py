@@ -588,6 +588,45 @@ def prepare_log_results(
     return results
 
 
+def _deduplicate_runs(logs: list[EvalLog], log_progress: bool) -> list[EvalLog]:
+    """Keep one log per evaluation run.
+
+    A single run can reach the loader more than once, most often as an ``.eval``
+    log and the ``.json`` sidecar exported beside it. Both decode to the same
+    run, so the first log loaded wins and later ones are dropped. Runs are
+    identified by their Inspect run ID, so distinct runs are always kept, including
+    ones whose files happen to share a name.
+
+    Args:
+        logs: The loaded Inspect evaluation logs, in load order.
+        log_progress: Whether to log the dropped duplicates.
+
+    Returns:
+        The logs without later duplicates of an already-seen run.
+
+    """
+    unique_logs: list[EvalLog] = []
+    seen_run_ids: set[str] = set()
+    duplicate_run_ids: list[str] = []
+    for log in logs:
+        run_id = log.eval.task_id
+        if run_id and run_id in seen_run_ids:
+            duplicate_run_ids.append(run_id)
+            continue
+        seen_run_ids.add(run_id)
+        unique_logs.append(log)
+
+    if duplicate_run_ids and log_progress:
+        logger.info(
+            "⏭️ Skipping %s duplicate log%s of already-loaded Run IDs: %s",
+            len(duplicate_run_ids),
+            "s" if len(duplicate_run_ids) != 1 else "",
+            ", ".join(sorted(set(duplicate_run_ids))),
+        )
+
+    return unique_logs
+
+
 def prepare_results(
     log_dir: str | None = None,
     log_files: str | list[str] | None = None,
@@ -637,6 +676,9 @@ def prepare_results(
         )
     if not isinstance(logs, list):
         logs = [logs]
+    # One evaluation run can arrive more than once, such as an .eval log and the
+    # .json sidecar beside it, which would otherwise be reported twice.
+    logs = _deduplicate_runs(logs, log_progress)
     # Filter the logs by tasks and/or already-exported run IDs
     if tasks:
         existing_tasks = {log.eval.task for log in logs}

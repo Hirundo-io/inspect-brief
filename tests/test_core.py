@@ -215,6 +215,30 @@ def test_eval_and_json_inputs_produce_equivalent_csv(tmp_path: Path) -> None:
     assert json_csv_path.read_bytes() == eval_csv_path.read_bytes()
 
 
+def test_one_run_stored_as_eval_and_json_is_reported_once(tmp_path: Path) -> None:
+    log = evaluation_log("task-a", "run-a", 0.75)
+    core.write_eval_log(log, tmp_path / "run.eval")
+    core.write_eval_log(log, tmp_path / "run.json", format="json")
+
+    rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
+
+    assert [(row["Run ID"], row["Metric"]) for row in rows] == [("run-a", "accuracy")]
+
+
+def test_distinct_runs_sharing_a_file_name_are_both_reported(tmp_path: Path) -> None:
+    for run_id in ("run-a", "run-b"):
+        run_dir = tmp_path / run_id
+        run_dir.mkdir()
+        core.write_eval_log(
+            evaluation_log("task-a", run_id, 0.75),
+            run_dir / "run.eval",
+        )
+
+    rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
+
+    assert sorted(row["Run ID"] for row in rows) == ["run-a", "run-b"]
+
+
 def test_load_logs_deduplicates_equivalent_paths(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
