@@ -126,7 +126,10 @@ def test_parse_target_metrics_rejects_invalid_field_types(
 
 
 def test_parse_target_metrics_rejects_duplicate_output_labels() -> None:
-    with pytest.raises(ValueError, match="duplicates the output label"):
+    with pytest.raises(
+        ValueError,
+        match=r"duplicates the output label.*distinct 'label'",
+    ):
         parse_target_metrics(
             json.dumps(
                 {
@@ -147,3 +150,87 @@ def test_parse_target_metrics_rejects_duplicate_output_labels() -> None:
                 },
             ),
         )
+
+
+def test_parse_target_metrics_accepts_score_name_and_label() -> None:
+    metric = {
+        "name": "accuracy",
+        "is_percentage": True,
+        "is_higher_better": False,
+        "is_normalized": True,
+        "score_name": "security",
+        "label": "attack success rate",
+    }
+
+    assert parse_target_metrics(json.dumps({"task-a": [metric]})) == {
+        "task-a": [metric],
+    }
+
+
+@pytest.mark.parametrize(
+    ("extra", "message"),
+    [
+        ({"score_name": ""}, r"non-empty strings for \['score_name'\]"),
+        ({"label": " "}, r"non-empty strings for \['label'\]"),
+        (
+            {"score_name": 1, "label": None},
+            r"non-empty strings for \['label', 'score_name'\]",
+        ),
+        ({"scorer": "utility"}, "and optionally"),
+        ({"unit": "ms"}, "and optionally"),
+    ],
+)
+def test_parse_target_metrics_rejects_invalid_optional_keys(
+    extra: dict[str, object],
+    message: str,
+) -> None:
+    metric = {
+        "name": "accuracy",
+        "is_percentage": False,
+        "is_higher_better": True,
+        "is_normalized": False,
+    } | extra
+
+    with pytest.raises(ValueError, match=message):
+        parse_target_metrics(json.dumps({"task-a": [metric]}))
+
+
+def test_parse_target_metrics_checks_labels_after_relabelling(tmp_path: Path) -> None:
+    base = {
+        "name": "accuracy",
+        "is_percentage": True,
+        "is_higher_better": True,
+        "is_normalized": True,
+    }
+    distinct = [base | {"score_name": "utility"}, base | {"score_name": "security"}]
+    relabelled = [
+        base | {"score_name": "utility", "label": "utility"},
+        base | {"score_name": "security", "label": "security"},
+    ]
+
+    metrics_path = tmp_path / "metrics.json"
+    metrics_path.write_text(json.dumps({"task-a": distinct}), encoding="utf-8")
+    with pytest.raises(
+        ValueError,
+        match=r"duplicates the output label.*distinct 'label'",
+    ):
+        parse_target_metrics(str(metrics_path))
+
+    metrics_path.write_text(json.dumps({"task-a": relabelled}), encoding="utf-8")
+    assert parse_target_metrics(str(metrics_path)) == {"task-a": relabelled}
+
+
+def test_parse_target_metrics_strips_optional_values() -> None:
+    metric = {
+        "name": "accuracy",
+        "is_percentage": True,
+        "is_higher_better": True,
+        "is_normalized": True,
+        "score_name": " utility ",
+        "label": "  padded  ",
+    }
+
+    parsed = parse_target_metrics(json.dumps({"task-a": [metric]}))
+    assert parsed is not None
+    [score] = parsed["task-a"]
+    assert (score["score_name"], score["label"]) == ("utility", "padded")

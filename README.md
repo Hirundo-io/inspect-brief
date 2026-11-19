@@ -189,12 +189,32 @@ inspect-brief \
 
 When `--target-metrics` is omitted, every metric present in the log scores is exported (with a scorer prefix when a log has multiple scorers).
 
-When provided, pass a JSON object (inline or as a file path) mapping each task name to a list of `InspectScore` objects. Each object must have exactly these keys:
+When provided, pass a JSON object (inline or as a file path) mapping each task name to a list of `InspectScore` objects. Each object must have these keys:
 
 - `name` — metric name as it appears in the Inspect log
 - `is_percentage` — whether to treat the value as a percentage (appends ` (%)` to the metric label)
 - `is_higher_better` — appends `⬆️` or `⬇️` to the metric label
 - `is_normalized` — if `is_percentage` is true and this is true, multiply the value by `100`
+
+It may also have these optional keys, each a non-empty string. No other keys are allowed.
+
+- `score_name` — read the metric only from the score with this name: `EvalScore.name` in the log (`results.scores[].name`), not its `scorer` field, which several scores can share. Without it, the first score that has a metric called `name` is used. Use it when several scores report a metric with the same name.
+- `label` — the metric label written to the CSV in place of `name`. Both values are stripped of surrounding whitespace. The ` (%)` and `⬆️`/`⬇️` annotations are still appended.
+
+Labels must be unique within a task after annotation, so two targets that differ only in `score_name` need distinct `label`s. For example, a task whose `utility` and `security` scores both report `accuracy`:
+
+```json
+{
+  "inspect_evals/agentdojo": [
+    {"name": "accuracy", "score_name": "utility", "label": "utility",
+     "is_percentage": true, "is_higher_better": true, "is_normalized": true},
+    {"name": "accuracy", "score_name": "security", "label": "attack success rate",
+     "is_percentage": true, "is_higher_better": false, "is_normalized": true}
+  ]
+}
+```
+
+If no score is named `score_name`, the Score column records `Score '<score_name>' not found`; if that score lacks the metric, it records `Metric '<name>' not found in score '<score_name>'`.
 
 Example (quote the JSON for the shell):
 
