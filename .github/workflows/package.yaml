@@ -43,12 +43,26 @@ jobs:
             --output-file /tmp/build-constraints.txt
       - name: Build distributions
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
-      - name: Read the declared Inspect AI requirement
+      # Pin the declared floor exactly. With the built wheel also installed,
+      # `--resolution lowest-direct` did not lower Inspect AI, so this job
+      # resolved the newest release instead of the minimum.
+      - name: Pin the minimum declared Inspect AI version
         id: inspect
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["project"]["dependencies"] if item.startswith("inspect-ai")))')"
+          requirement="$(uv run --python "$PYTHON_VERSION" --no-project python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as handle:
+              dependencies = tomllib.load(handle)["project"]["dependencies"]
+          declared = next(item for item in dependencies if item.startswith("inspect-ai"))
+          name, separator, minimum = declared.partition(">=")
+          assert separator, f"expected a lower bound, found {declared!r}"
+          print(f"{name}=={minimum}")
+          PY
+          )"
+          echo "Pinned $requirement"
           echo "requirement=$requirement" >> "$GITHUB_OUTPUT"
       - name: Verify installed entry points with the minimum Inspect AI version
         env:
@@ -63,7 +77,6 @@ jobs:
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
             --with "$INSPECT_REQUIREMENT" \
-            --resolution lowest-direct \
             --no-project \
             python -c \
             'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
@@ -71,6 +84,20 @@ jobs:
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
             --with "$INSPECT_REQUIREMENT" \
-            --resolution lowest-direct \
             --no-project \
             inspect-brief --help
+      - name: Run the test suite with the minimum Inspect AI version
+        env:
+          INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        # Inspect's log lister parses log file names, and releases below the
+        # declared floor raise on some names, which aborts a whole `--log-dir`
+        # scan. Only running the suite here keeps the floor honest.
+        run: |
+          uv run \
+            --python "$PYTHON_VERSION" \
+            --with-editable . \
+            --with "$INSPECT_REQUIREMENT" \
+            --with pytest \
+            --no-project \
+            pytest -q

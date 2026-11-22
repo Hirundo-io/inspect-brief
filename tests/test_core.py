@@ -1,8 +1,12 @@
 import csv
+import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Literal
 
 import pytest
+from fsspec.core import url_to_fs
+from fsspec.implementations.memory import MemoryFileSystem
 from inspect_ai.log import (
     EvalConfig,
     EvalDataset,
@@ -30,13 +34,31 @@ def inspect_log_name(stem: str, suffix: str) -> str:
     return f"2026-11-19T12-00-00+00-00_{stem}{suffix}"
 
 
-def evaluation_log(task: str, task_id: str, accuracy: float) -> EvalLog:
+@pytest.fixture
+def memory_filesystem() -> Iterator[None]:
+    """Provide an empty fsspec in-memory filesystem for provider-URI tests."""
+    store = MemoryFileSystem.store
+    pseudo_dirs = MemoryFileSystem.pseudo_dirs
+    MemoryFileSystem.store = {}
+    MemoryFileSystem.pseudo_dirs = [""]
+    yield
+    MemoryFileSystem.store = store
+    MemoryFileSystem.pseudo_dirs = pseudo_dirs
+
+
+def evaluation_log(
+    task: str,
+    task_id: str,
+    accuracy: float,
+    run_id: str = "",
+) -> EvalLog:
     """Create a deterministic Inspect log containing one accuracy metric."""
     return EvalLog(
         status="success",
         eval=EvalSpec(
             task=task,
             task_id=task_id,
+            run_id=run_id,
             created="2026-08-26T12:00:00+00:00",
             dataset=EvalDataset(),
             model="test",
@@ -237,6 +259,74 @@ def test_one_run_stored_as_eval_and_json_is_reported_once(tmp_path: Path) -> Non
     assert [(row["Run ID"], row["Metric"]) for row in rows] == [("run-a", "accuracy")]
 
 
+@pytest.mark.parametrize("input_form", ["log_dir_and_json_file", "json_file_first"])
+def test_native_eval_copy_wins_over_a_json_copy_of_the_same_run(
+    tmp_path: Path,
+    input_form: Literal["log_dir_and_json_file", "json_file_first"],
+) -> None:
+    """Prefer the `.eval` copy across every source, not only within one scan.
+
+    The two copies carry different scores so the reported row says which one
+    survived deduplication.
+    """
+    native_path = tmp_path / inspect_log_name("run", ".eval")
+    json_path = tmp_path / inspect_log_name("run", ".json")
+    core.write_eval_log(evaluation_log("task-a", "run-a", 0.25), native_path)
+    core.write_eval_log(
+        evaluation_log("task-a", "run-a", 0.75),
+        json_path,
+        format="json",
+    )
+
+    if input_form == "log_dir_and_json_file":
+        rows = prepare_results(
+            log_dir=str(tmp_path),
+            log_files=str(json_path),
+            log_progress=False,
+        )
+    else:
+        rows = prepare_results(
+            log_files=[str(json_path), str(native_path)],
+            log_progress=False,
+        )
+
+    assert [(row["Run ID"], row["Score"]) for row in rows] == [("run-a", 0.25)]
+
+
+def test_retried_run_is_reported_separately_from_its_original() -> None:
+    """Keep separate attempts that Inspect gives one task ID and two run IDs."""
+    rows = prepare_results(
+        logs=[
+            evaluation_log("task-a", "run-a", 0.25, run_id="invocation-1"),
+            evaluation_log("task-a", "run-a", 0.75, run_id="invocation-2"),
+        ],
+        log_progress=False,
+    )
+
+    assert [(row["Run ID"], row["Score"]) for row in rows] == [
+        ("run-a", 0.25),
+        ("run-a", 0.75),
+    ]
+
+
+def test_log_dir_discovers_eval_logs_whose_names_are_not_inspect_named(
+    tmp_path: Path,
+) -> None:
+    """Discover `.eval` logs by suffix however they are named.
+
+    Inspect's lister parses log file names, and releases before 0.3.221 raise
+    on this one, which aborts the whole scan.
+    """
+    core.write_eval_log(
+        evaluation_log("task-a", "run-a", 0.75),
+        tmp_path / "run_task_x-1.eval",
+    )
+
+    rows = prepare_results(log_dir=str(tmp_path), log_progress=False)
+
+    assert [row["Run ID"] for row in rows] == ["run-a"]
+
+
 def test_distinct_runs_sharing_a_file_name_are_both_reported(tmp_path: Path) -> None:
     for run_id in ("run-a", "run-b"):
         run_dir = tmp_path / run_id
@@ -348,23 +438,24 @@ def test_load_logs_does_not_overwrite_json_input_when_exporting_sidecars(
     assert load_logs(log_files=log_file, export_jsons=True)
 
 
-def test_load_logs_redacts_uri_credentials_from_directory_scan_errors(
+def test_load_logs_rejects_log_dir_uri_credentials(
     caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    log_dir = "https://alice:password@example.com/logs?token=secret#private"
-    monkeypatch.setattr(
-        core,
-        "list_eval_logs",
-        lambda *_, **__: (_ for _ in ()).throw(OSError(log_dir)),
-    )
+    """Reject the URI rather than hand its credentials to Inspect's lister.
 
-    with pytest.raises(ValueError, match="directory scan") as error:
+    Inspect logs the directory it is listing at DEBUG before touching the
+    filesystem, so the real lister runs here and the capture covers its records
+    as well as Inspect Brief's own.
+    """
+    log_dir = "https://alice:password@example.com/logs?token=secret#private"
+
+    with (
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(ValueError, match="does not accept a log directory URI") as error,
+    ):
         load_logs(log_dir=log_dir, fail_on_error=True)
 
-    assert "https://example.com/logs" in caplog.text
-    assert "https://example.com/logs" in str(error.value)
-    for secret in ("alice", "password", "token", "secret", "private"):
+    for secret in ("alice", "password", "token", "secret", "example.com"):
         assert secret not in caplog.text
         assert secret not in str(error.value)
 
@@ -893,19 +984,68 @@ def test_load_logs_skips_remote_sidecar_colliding_with_input(
     )
 
 
+@pytest.mark.parametrize("input_form", ["path", "file_uri", "log_dir"])
 def test_load_logs_does_not_write_through_dangling_sidecar_symlink(
     tmp_path: Path,
+    input_form: Literal["path", "file_uri", "log_dir"],
 ) -> None:
-    native_path = tmp_path / inspect_log_name("run", ".eval")
+    """Refuse the sidecar whichever way the native log reaches the loader.
+
+    Inspect reports discovered logs as ``file:`` URIs, so ``log_dir`` inputs
+    reach the export step in URI form just as explicit URIs do.
+    """
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    native_path = log_dir / inspect_log_name("run", ".eval")
     core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_path)
-    outside_target = tmp_path / "outside" / "clobbered.json"
-    outside_target.parent.mkdir()
-    sidecar_path = tmp_path / inspect_log_name("run", ".json")
+    outside_target = tmp_path / "clobbered.json"
+    sidecar_path = log_dir / inspect_log_name("run", ".json")
     sidecar_path.symlink_to(outside_target)
 
-    load_logs(log_files=str(native_path), export_jsons=True, fail_on_error=True)
+    if input_form == "log_dir":
+        load_logs(log_dir=str(log_dir), export_jsons=True)
+    else:
+        load_logs(
+            log_files=native_path.as_uri()
+            if input_form == "file_uri"
+            else str(native_path),
+            export_jsons=True,
+            fail_on_error=True,
+        )
 
     assert not outside_target.exists()
+
+
+def test_load_logs_preserves_json_input_under_an_equivalent_provider_uri(
+    memory_filesystem: None,
+) -> None:
+    """Compare sidecar destinations with inputs by stored object, not by text.
+
+    ``memory://logs/run.json`` and ``memory:///logs/run.json`` name one object,
+    so the native log's sidecar must not be written over the JSON input.
+    """
+    native_uri = "memory://logs/run.eval"
+    json_uri = "memory:///logs/run.json"
+    core.write_eval_log(evaluation_log("native", "native-run", 0.25), native_uri)
+    core.write_eval_log(
+        evaluation_log("sidecar", "json-run", 0.75),
+        json_uri,
+        format="json",
+    )
+    filesystem, object_path = url_to_fs(json_uri)
+    original_json = filesystem.cat_file(object_path)
+
+    loaded_logs = load_logs(
+        log_files=[native_uri, json_uri],
+        export_jsons=True,
+        fail_on_error=True,
+    )
+
+    assert sorted(log.eval.task_id for log in loaded_logs) == [
+        "json-run",
+        "native-run",
+    ]
+    assert filesystem.cat_file(object_path) == original_json
 
 
 def test_load_logs_preserves_unreadable_input_colliding_with_sidecar(

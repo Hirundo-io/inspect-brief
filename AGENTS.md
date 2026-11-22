@@ -36,7 +36,7 @@ CI runs the test suite on every supported Python version. During development, ru
 
 ## Coding Style
 
-Follow Google-style docstrings and PEP 8 naming conventions. Use modern strict type annotations on all functions, including tests. Keep shared parsing and validation in `parsing.py`; keep Typer-specific option declarations and error translation in `cli.py`. Keep the CSV schema (`OutputEntry`) and score definition (`InspectScore`) in `core.py`.
+Follow Google-style docstrings and PEP 8 naming conventions. Use modern strict type annotations on all functions, including tests. Keep shared parsing and validation in `parsing.py`; keep Typer-specific option declarations and error translation in `cli.py`. Keep the CSV schema (`OutputEntry`) and score definition (`InspectScore`) in `core.py`. Log-source validation (`validate_log_suffix` and the path and URI resolvers beside it) is the one exception: it stays in `core.py` because `parsing.py` imports `core.py`, and the loader needs the same validators.
 
 Let Ruff handle formatting and import order. Avoid disabling lint rules without a documented reason.
 

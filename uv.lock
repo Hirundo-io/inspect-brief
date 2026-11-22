@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.14"
 
 [[package]]
@@ -635,6 +635,7 @@ name = "inspect-brief"
 version = "0.1.1"
 source = { editable = "." }
 dependencies = [
+    { name = "fsspec" },
     { name = "inspect-ai" },
     { name = "python-dotenv" },
     { name = "tqdm" },
@@ -662,7 +663,8 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "inspect-ai", specifier = ">=0.3.112" },
+    { name = "fsspec", specifier = ">=2023.1.0" },
+    { name = "inspect-ai", specifier = ">=0.3.221" },
     { name = "python-dotenv" },
     { name = "tqdm" },
     { name = "typer" },
