@@ -130,6 +130,10 @@ At least one of `--log-dir` or `--log-files` is required:
 - `--log-files` accepts one or more explicit `.eval` or `.json` paths and URIs,
   whatever the file is named.
   Repeat the option, separate sources with commas, or combine both forms.
+  A URI must not carry credentials, such as `user:password@` or a presigned
+  URL's query token, because Inspect logs every location it reads. Supply
+  provider credentials through the environment instead, for example
+  `AWS_ACCESS_KEY_ID` for `s3://` sources.
 - Supplying both combines the discovered and explicit logs and removes duplicates.
 
 ### 2. Run the export

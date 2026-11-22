@@ -58,6 +58,15 @@ def test_parse_log_files_rejects_unsupported_files(tmp_path: Path) -> None:
         parse_log_files(["s3://bucket/run.txt"])
 
 
+def test_parse_log_files_rejects_uri_credentials() -> None:
+    for source in (
+        "https://alice:password@example.com/run.eval",
+        "https://example.com/run.eval?token=secret",
+    ):
+        with pytest.raises(ValueError, match="does not accept a log URI"):
+            parse_log_files([source])
+
+
 def test_parse_target_metrics_rejects_invalid_json() -> None:
     with pytest.raises(ValueError, match="inline value 'not json' is not valid JSON"):
         parse_target_metrics("not json")

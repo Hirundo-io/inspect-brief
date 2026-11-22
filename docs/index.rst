@@ -73,6 +73,10 @@ At least one of ``--log-dir`` or ``--log-files`` is required:
   A run stored in both formats is read once, from its ``.eval`` log.
 - ``--log-files`` accepts one or more explicit ``.eval`` or ``.json`` paths and
   URIs. Repeat the option, separate sources with commas, or combine both forms.
+  A URI must not carry credentials, such as ``user:password@`` or a presigned
+  URL's query token, because Inspect logs every location it reads. Supply
+  provider credentials through the environment instead, for example
+  ``AWS_ACCESS_KEY_ID`` for ``s3://`` sources.
 - Supplying both combines the discovered and explicit logs and removes
   duplicates.
 

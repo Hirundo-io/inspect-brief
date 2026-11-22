@@ -438,71 +438,45 @@ def test_load_logs_does_not_overwrite_json_input_when_exporting_sidecars(
     assert load_logs(log_files=log_file, export_jsons=True)
 
 
-def test_load_logs_rejects_log_dir_uri_credentials(
+@pytest.mark.parametrize(
+    ("location_kind", "expected_error"),
+    [
+        ("log_dir", "does not accept a log URI"),
+        ("log_files", "Could not load 1 Inspect log"),
+    ],
+)
+def test_load_logs_rejects_uri_credentials_before_inspect_reads_them(
     caplog: pytest.LogCaptureFixture,
+    location_kind: Literal["log_dir", "log_files"],
+    expected_error: str,
 ) -> None:
-    """Reject the URI rather than hand its credentials to Inspect's lister.
+    """Keep credentials away from the real Inspect and fsspec debug logs.
 
-    Inspect logs the directory it is listing at DEBUG before touching the
-    filesystem, so the real lister runs here and the capture covers its records
+    Inspect and fsspec log every location they list or read at DEBUG, so the
+    real lister and reader stay in place and the capture covers their records
     as well as Inspect Brief's own.
     """
-    log_dir = "https://alice:password@example.com/logs?token=secret#private"
+    location = "https://alice:password@example.com/logs/run.eval?token=secret#private"
+
+    def load() -> None:
+        if location_kind == "log_dir":
+            load_logs(log_dir=location, fail_on_error=True)
+        else:
+            load_logs(log_files=location, export_jsons=True, fail_on_error=True)
 
     with (
         caplog.at_level(logging.DEBUG),
-        pytest.raises(ValueError, match="does not accept a log directory URI") as error,
+        pytest.raises(ValueError, match=expected_error) as error,
     ):
-        load_logs(log_dir=log_dir, fail_on_error=True)
+        load()
 
-    for secret in ("alice", "password", "token", "secret", "example.com"):
-        assert secret not in caplog.text
-        assert secret not in str(error.value)
-
-
-def test_load_logs_redacts_uri_credentials_from_diagnostics(
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    log_uri = "https://alice:password@example.com/run.eval?token=secret#private"
-    monkeypatch.setattr(
-        core,
-        "read_eval_log",
-        lambda path: (_ for _ in ()).throw(OSError(log_uri)),
-    )
-
-    with pytest.raises(ValueError, match="Could not load 1 Inspect log") as error:
-        load_logs(log_files=log_uri, fail_on_error=True)
-
-    assert "https://example.com/run.eval" in caplog.text
-    assert "https://example.com/run.eval" in str(error.value)
-    assert error.value.__cause__ is not None
+    diagnostics = f"{caplog.text}\n{error.value}\n{error.value.__cause__}"
     for secret in ("alice", "password", "token", "secret", "private"):
-        assert secret not in caplog.text
-        assert secret not in str(error.value)
-        assert secret not in str(error.value.__cause__)
-
-
-def test_load_logs_redacts_uri_credentials_from_export_messages(
-    caplog: pytest.LogCaptureFixture,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    log_uri = "https://alice:password@example.com/run.eval?token=secret#private"
-    exported: list[str | Path] = []
-    monkeypatch.setattr(core, "read_eval_log", lambda path: path)
-    monkeypatch.setattr(
-        core,
-        "write_eval_log",
-        lambda _log, path, **_kwargs: exported.append(path),
-    )
-
-    load_logs(log_files=log_uri, export_jsons=True)
-
-    assert exported == []
-    assert "https://example.com/run.eval" in caplog.text
-    assert "URI sidecars" in caplog.text
-    for secret in ("alice", "password", "token", "secret", "private"):
-        assert secret not in caplog.text
+        assert secret not in diagnostics
+    if location_kind == "log_files":
+        # The failed source is still named, with its secrets stripped.
+        assert "https://example.com/logs/run.eval" in diagnostics
+        assert "does not accept a log URI" in str(error.value.__cause__)
 
 
 def test_load_logs_skips_unresolvable_paths_and_continues(
