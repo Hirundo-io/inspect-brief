@@ -43,27 +43,15 @@ jobs:
             --output-file /tmp/build-constraints.txt
       - name: Build distributions
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
-      # Pin the declared floor exactly. With the built wheel also installed,
-      # `--resolution lowest-direct` did not lower Inspect AI, so this job
-      # resolved the newest release instead of the minimum.
-      - name: Pin the minimum declared Inspect AI version
+      - name: Read the declared Inspect AI and pytest requirements
         id: inspect
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          requirement="$(uv run --python "$PYTHON_VERSION" --no-project python - <<'PY'
-          import tomllib
-
-          with open("pyproject.toml", "rb") as handle:
-              dependencies = tomllib.load(handle)["project"]["dependencies"]
-          declared = next(item for item in dependencies if item.startswith("inspect-ai"))
-          name, separator, minimum = declared.partition(">=")
-          assert separator, f"expected a lower bound, found {declared!r}"
-          print(f"{name}=={minimum}")
-          PY
-          )"
-          echo "Pinned $requirement"
+          requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["project"]["dependencies"] if item.startswith("inspect-ai")))')"
           echo "requirement=$requirement" >> "$GITHUB_OUTPUT"
+          pytest_requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["dependency-groups"]["dev"] if item.startswith("pytest")))')"
+          echo "pytest_requirement=$pytest_requirement" >> "$GITHUB_OUTPUT"
       - name: Verify installed entry points with the minimum Inspect AI version
         env:
           INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
@@ -77,6 +65,7 @@ jobs:
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
             --with "$INSPECT_REQUIREMENT" \
+            --resolution lowest-direct \
             --no-project \
             python -c \
             'from importlib.metadata import entry_points; from inspect_brief.hooks import InspectBriefHooks; entry_point = next(item for item in entry_points(group="inspect_ai") if item.name == "inspect_brief"); assert entry_point.load().InspectBriefHooks is InspectBriefHooks'
@@ -84,20 +73,25 @@ jobs:
             --python "$PYTHON_VERSION" \
             --with "$wheel" \
             --with "$INSPECT_REQUIREMENT" \
+            --resolution lowest-direct \
             --no-project \
             inspect-brief --help
       - name: Run the test suite with the minimum Inspect AI version
         env:
           INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
+          PYTEST_REQUIREMENT: ${{ steps.inspect.outputs.pytest_requirement }}
           PYTHON_VERSION: ${{ matrix.python-version }}
-        # Inspect's log lister parses log file names, and releases below the
-        # declared floor raise on some names, which aborts a whole `--log-dir`
-        # scan. Only running the suite here keeps the floor honest.
+        # The wheel supplies the runtime dependencies as transitive ones, so
+        # `lowest-direct` lowers only Inspect AI and pytest. An editable install
+        # would make them direct and lower the unbounded ones too. The tests
+        # import the checkout.
         run: |
+          wheel="$(realpath dist/*.whl)"
           uv run \
             --python "$PYTHON_VERSION" \
-            --with-editable . \
+            --with "$wheel" \
             --with "$INSPECT_REQUIREMENT" \
-            --with pytest \
+            --with "$PYTEST_REQUIREMENT" \
+            --resolution lowest-direct \
             --no-project \
             pytest -q

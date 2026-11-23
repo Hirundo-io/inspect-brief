@@ -560,6 +560,7 @@ def test_load_logs_rejects_unsupported_files(
 def test_load_logs_handles_directory_scan_errors(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     explicit = tmp_path / "explicit.eval"
     explicit.touch()
@@ -571,6 +572,12 @@ def test_load_logs_handles_directory_scan_errors(
     monkeypatch.setattr(core, "read_eval_log", lambda path: path)
 
     assert load_logs(log_dir=str(tmp_path), log_files=str(explicit)) == [str(explicit)]
+    scan_records = [
+        record for record in caplog.records if "Could not scan" in record.message
+    ]
+    assert len(scan_records) == 1
+    assert scan_records[0].exc_info is not None
+    assert isinstance(scan_records[0].exc_info[1], OSError)
 
     with pytest.raises(ValueError, match="directory scan") as error:
         load_logs(
