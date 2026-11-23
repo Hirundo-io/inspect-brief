@@ -114,6 +114,7 @@ OutputEntry = TypedDict(
         "Metric": str,
         "Score": float | str,
         "Runtime (sec)": int | str,
+        "Model": str,
     },
 )
 
@@ -704,6 +705,9 @@ def prepare_log_results(
         log.stats.completed_at,
     )
     created = log.eval.created or log.stats.started_at or "N/A"
+    model_name = (log.eval.metadata or {}).get("model_name")
+    display_name = model_name.strip() if isinstance(model_name, str) else ""
+    model = display_name or log.eval.model
 
     results = [
         OutputEntry(
@@ -714,6 +718,7 @@ def prepare_log_results(
                 "Metric": score_name,
                 "Score": score_value,
                 "Runtime (sec)": runtime,
+                "Model": model,
             },
         )
         for score_name, score_value in score_values(log, target_metrics).items()

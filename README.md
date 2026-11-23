@@ -246,13 +246,16 @@ inspect-brief --log-dir /path/to/logs --target-metrics ./target_metrics.json
 
 Results are appended to the CSV. Columns:
 
-| Created | Run ID | Benchmark | Metric | Score | Runtime (sec) |
-| --- | --- | --- | --- | --- | --- |
-| 2026-08-17T16:54:14+00:00 | L67rTm5rz3wkwVdTLMGDme | inspect_evals/gpqa_diamond | accuracy | 0.3699 | 28 |
+| Created | Run ID | Benchmark | Metric | Score | Runtime (sec) | Model |
+| --- | --- | --- | --- | --- | --- | --- |
+| 2026-08-17T16:54:14+00:00 | L67rTm5rz3wkwVdTLMGDme | inspect_evals/gpqa_diamond | accuracy | 0.3699 | 28 | ollama/llama3.2 |
 
 - **Created** comes from `log.eval.created`, falling back to `log.stats.started_at`
 - **Score** is formatted to 2 decimal places when `> 1.0`, otherwise 4 decimal places
 - Failed or incomplete runs record a status string in the Score column when applicable
+- **Model** uses the trimmed `log.eval.metadata["model_name"]` when it is a
+  non-blank string and falls back to `log.eval.model` otherwise. When an older
+  CSV gains the column, its existing rows get `N/A`.
 
 ## Contributing
 
