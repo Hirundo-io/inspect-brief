@@ -28,7 +28,16 @@ keywords = [
   "report generation",
 ]
 requires-python = ">=3.12,<3.14"
-dependencies = ["inspect-ai>=0.3.112", "python-dotenv", "tqdm", "typer"]
+# `inspect-ai` 0.3.221 is the first release whose `list_eval_logs` does not
+# raise on `.eval` names such as `run_task_x-1.eval`; earlier releases abort
+# the whole `--log-dir` scan on them.
+dependencies = [
+  "fsspec>=2023.1.0",
+  "inspect-ai>=0.3.221",
+  "python-dotenv",
+  "tqdm",
+  "typer",
+]
 
 [dependency-groups]
 dev = [

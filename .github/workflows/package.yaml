@@ -43,13 +43,15 @@ jobs:
             --output-file /tmp/build-constraints.txt
       - name: Build distributions
         run: uv build --build-constraints /tmp/build-constraints.txt --require-hashes
-      - name: Read the declared Inspect AI requirement
+      - name: Read the declared Inspect AI and pytest requirements
         id: inspect
         env:
           PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["project"]["dependencies"] if item.startswith("inspect-ai")))')"
           echo "requirement=$requirement" >> "$GITHUB_OUTPUT"
+          pytest_requirement="$(uv run --python "$PYTHON_VERSION" --no-project python -c 'import tomllib; data = tomllib.load(open("pyproject.toml", "rb")); print(next(item for item in data["dependency-groups"]["dev"] if item.startswith("pytest")))')"
+          echo "pytest_requirement=$pytest_requirement" >> "$GITHUB_OUTPUT"
       - name: Verify installed entry points with the minimum Inspect AI version
         env:
           INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
@@ -74,3 +76,22 @@ jobs:
             --resolution lowest-direct \
             --no-project \
             inspect-brief --help
+      - name: Run the test suite with the minimum Inspect AI version
+        env:
+          INSPECT_REQUIREMENT: ${{ steps.inspect.outputs.requirement }}
+          PYTEST_REQUIREMENT: ${{ steps.inspect.outputs.pytest_requirement }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        # The wheel supplies the runtime dependencies as transitive ones, so
+        # `lowest-direct` lowers only Inspect AI and pytest. An editable install
+        # would make them direct and lower the unbounded ones too. The tests
+        # import the checkout.
+        run: |
+          wheel="$(realpath dist/*.whl)"
+          uv run \
+            --python "$PYTHON_VERSION" \
+            --with "$wheel" \
+            --with "$INSPECT_REQUIREMENT" \
+            --with "$PYTEST_REQUIREMENT" \
+            --resolution lowest-direct \
+            --no-project \
+            pytest -q
