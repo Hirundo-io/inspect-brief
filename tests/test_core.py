@@ -110,6 +110,39 @@ def test_export_results_filters_tasks(tmp_path: Path) -> None:
     assert all("task-c" not in row for row in rows)
 
 
+def test_export_results_adds_model_to_existing_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "brief.csv"
+    legacy_header = "Created,Run ID,Benchmark,Metric,Score,Runtime (sec)"
+    legacy_row = "2026-08-26T12:00:00+00:00,old-run,task-a,accuracy,1.0000,2"
+    csv_path.write_text(f"{legacy_header}\n{legacy_row}\n", encoding="utf-8")
+    cases: list[tuple[str, dict[str, object] | None, str]] = [
+        ("provider/base-a", None, "provider/base-a"),
+        ("provider/base-a", {"model_name": " Unlearned A "}, "Unlearned A"),
+        ("provider/base-b", {}, "provider/base-b"),
+        ("provider/base-b", {"model_name": ""}, "provider/base-b"),
+        ("provider/base-b", {"model_name": " \t "}, "provider/base-b"),
+        ("provider/base-b", {"model_name": 42}, "provider/base-b"),
+        ("provider/base-b", {"model_name": " =1+1"}, "'=1+1"),
+    ]
+    logs: list[EvalLog] = []
+    for index, (model, metadata, _) in enumerate(cases):
+        log = evaluation_log("task-a", f"run-{index}", 1.0)
+        log.eval.model = model
+        log.eval.metadata = metadata
+        logs.append(log)
+
+    row_count = export_results(logs=logs, csv_path=str(csv_path), log_progress=False)
+
+    assert row_count == len(cases)
+    with csv_path.open(encoding="utf-8", newline="") as csv_file:
+        header, old_row, *new_rows = csv.reader(csv_file)
+    assert header == [*legacy_header.split(","), "Model"]
+    assert old_row == [*legacy_row.split(","), "N/A"]
+    assert [(row[1], row[-1]) for row in new_rows] == [
+        (f"run-{index}", expected) for index, (_, _, expected) in enumerate(cases)
+    ]
+
+
 @pytest.mark.parametrize(
     "run_id",
     [
