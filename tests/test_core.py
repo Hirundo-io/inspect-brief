@@ -407,6 +407,9 @@ def test_load_logs_decodes_file_uri_before_validation_and_reading(
     [
         "s3://inspect-logs/run.eval",
         "simplecache::s3://inspect-logs/run.eval",
+        "abfs://run-logs@storageaccount.dfs.core.windows.net/run.eval",
+        "abfss://run-logs@storageaccount.dfs.core.windows.net/run.eval",
+        "az://run-logs@storageaccount.blob.core.windows.net/run.eval",
     ],
 )
 def test_load_logs_preserves_and_deduplicates_remote_uris(
@@ -504,17 +507,49 @@ def test_load_logs_rejects_uri_credentials_before_inspect_reads_them(
 
 
 @pytest.mark.parametrize(
-    ("location", "expected_cause"),
+    ("location", "expected_cause", "expected_source"),
     [
         pytest.param(
             "https://placeholder@example\N{FULLWIDTH COLON}443/run.eval",
             "Invalid log source URI",
+            "<invalid log source>",
             id="malformed-authority",
         ),
         pytest.param(
             "simplecache::https://placeholder@example.test/run.eval",
             "does not accept a log URI",
+            "<redacted log URI>",
             id="chained-uri",
+        ),
+        pytest.param(
+            "abfs://run-logs:placeholder@storageaccount.dfs.core.windows.net/run.eval",
+            "does not accept a log URI",
+            "abfs://storageaccount.dfs.core.windows.net/run.eval",
+            id="azure-password",
+        ),
+        pytest.param(
+            "az://run-logs@storageaccount.blob.core.windows.net/run.eval?sig=placeholder",
+            "does not accept a log URI",
+            "az://run-logs@storageaccount.blob.core.windows.net/run.eval",
+            id="azure-sas",
+        ),
+        pytest.param(
+            "abfss://run-logs@storageaccount.dfs.core.windows.net/run.eval#placeholder",
+            "does not accept a log URI",
+            "abfss://run-logs@storageaccount.dfs.core.windows.net/run.eval",
+            id="azure-fragment",
+        ),
+        pytest.param(
+            "abfs://placeholder@storageaccount.dfs.core.windows.net.example.test/run.eval",
+            "does not accept a log URI",
+            "abfs://storageaccount.dfs.core.windows.net.example.test/run.eval",
+            id="azure-lookalike-host",
+        ),
+        pytest.param(
+            "https://placeholder@storageaccount.dfs.core.windows.net/run.eval",
+            "does not accept a log URI",
+            "https://storageaccount.dfs.core.windows.net/run.eval",
+            id="azure-host-with-https-userinfo",
         ),
     ],
 )
@@ -523,6 +558,7 @@ def test_load_logs_excludes_unsafe_uri_details_from_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
     location: str,
     expected_cause: str,
+    expected_source: str,
 ) -> None:
     def unexpected_read(_source: str) -> EvalLog:
         pytest.fail("Invalid log source must be rejected before reading")
@@ -533,6 +569,7 @@ def test_load_logs_excludes_unsafe_uri_details_from_diagnostics(
         load_logs(log_files=location, fail_on_error=True)
 
     assert expected_cause in str(error.value.__cause__)
+    assert expected_source in str(error.value)
     assert "placeholder" not in f"{caplog.text}\n{error.value}\n{error.value.__cause__}"
 
 

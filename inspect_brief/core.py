@@ -29,13 +29,19 @@ _SUPPORTED_LOG_SUFFIXES = tuple(
 )
 _SUPPORTED_LOG_ERROR = "Inspect Brief supports only .eval and .json log files"
 _URI_CREDENTIALS_ERROR = (
-    "Inspect Brief does not accept a log URI carrying userinfo, a query string, "
+    "Inspect Brief does not accept a log URI carrying credentials, a query string, "
     "or a fragment: Inspect and its storage backends record the locations they "
     "read and list in their own diagnostics, where Inspect Brief cannot redact "
     "them. Supply provider credentials through the environment instead."
 )
 # An explicit scheme after fsspec's separator starts another URI.
 _URI_CHAIN_SEPARATOR: re.Pattern[str] = re.compile(r"::(?=[a-zA-Z][a-zA-Z0-9+.-]*://)")
+# adlfs uses the text before @ as the container on public Azure storage hosts.
+_AZURE_CONTAINER_URI: re.Pattern[str] = re.compile(
+    r"(?:az|abfss?)://"
+    r"(?=[a-z0-9-]{3,63}@)[a-z0-9]+(?:-[a-z0-9]+)*@"
+    r"[a-z0-9]{3,24}\.(?:blob|dfs)\.core\.windows\.net(?=[/?#]|\Z)",
+)
 
 
 def _format_rank(log_source: str) -> int:
@@ -268,19 +274,19 @@ def _redact_log_source(log_file: str) -> str:
     components = _URI_CHAIN_SEPARATOR.split(log_file)
     for component in components:
         parsed = _parse_log_uri(component)
-        if parsed is None or not (
-            "@" in parsed.netloc or "?" in component or "#" in component
-        ):
+        if parsed is None:
+            continue
+        netloc = parsed.netloc
+        has_credential_userinfo = (
+            "@" in netloc and _AZURE_CONTAINER_URI.match(component) is None
+        )
+        if not (has_credential_userinfo or "?" in component or "#" in component):
             continue
         if len(components) > 1:
             return "<redacted log URI>"
-        return urlunsplit(
-            parsed._replace(
-                netloc=parsed.netloc.rpartition("@")[2],
-                query="",
-                fragment="",
-            ),
-        )
+        if has_credential_userinfo:
+            netloc = netloc.rpartition("@")[2]
+        return urlunsplit(parsed._replace(netloc=netloc, query="", fragment=""))
     return log_file
 
 
@@ -310,7 +316,7 @@ def _reject_uri_credentials(log_location: str) -> None:
         log_location: Local path or URI of a log or log directory.
 
     Raises:
-        ValueError: If the URI is malformed or carries userinfo, a query string,
+        ValueError: If the URI is malformed or carries credentials, a query string,
             or a fragment.
     """
     if _redact_log_source(log_location) != log_location:
@@ -502,12 +508,11 @@ def load_logs(
 
     Args:
         log_dir (optional): Path or URI of the directory containing the Inspect
-            logs. A URI must not carry userinfo, a query string, or a fragment,
-            because the storage backend records the directory it lists in its
-            own diagnostics.
+            logs. URIs with credentials, query strings, or fragments are rejected
+            before storage backends can log them. Standard Azure Blob and Data Lake
+            URIs may include the container name before the account host.
         log_files (optional): Path or list of paths to the Inspect evaluation
-            log files. A URI carrying userinfo, a query string, or a fragment
-            fails to load, for the same reason as a ``log_dir`` URI.
+            log files. The same URI restrictions apply as for ``log_dir``.
         export_jsons (optional): Whether to export the Inspect logs as JSON sidecars.
             Sidecars whose destinations alias any input are skipped.
         fail_on_error: Whether to raise after processing all paths if any log
