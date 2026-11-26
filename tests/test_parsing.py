@@ -67,6 +67,11 @@ def test_parse_log_files_rejects_uri_credentials() -> None:
             parse_log_files([source])
 
 
+def test_parse_log_files_excludes_invalid_authority_from_the_error() -> None:
+    with pytest.raises(ValueError, match=r"^Invalid log source URI$"):
+        parse_log_files(["https://placeholder@example\N{FULLWIDTH COLON}443/run.eval"])
+
+
 def test_parse_target_metrics_rejects_invalid_json() -> None:
     with pytest.raises(ValueError, match="inline value 'not json' is not valid JSON"):
         parse_target_metrics("not json")

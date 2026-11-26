@@ -3,12 +3,13 @@
 import csv
 import logging
 import os
+import re
 import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal, NotRequired, Protocol, TypedDict, get_type_hints
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 from urllib.request import url2pathname
 
 from fsspec.core import url_to_fs
@@ -33,6 +34,8 @@ _URI_CREDENTIALS_ERROR = (
     "read and list in their own diagnostics, where Inspect Brief cannot redact "
     "them. Supply provider credentials through the environment instead."
 )
+# An explicit scheme after fsspec's separator starts another URI.
+_URI_CHAIN_SEPARATOR: re.Pattern[str] = re.compile(r"::(?=[a-zA-Z][a-zA-Z0-9+.-]*://)")
 
 
 def _format_rank(log_source: str) -> int:
@@ -183,18 +186,26 @@ def _resolve_log_path(log_file: str) -> Path:
     return path.resolve(strict=True)
 
 
-def _is_log_uri(log_file: str) -> bool:
-    """Return whether a log source uses an explicit URI or provider scheme.
+def _parse_log_uri(log_file: str) -> SplitResult | None:
+    """Parse a log URI without exposing invalid input in errors.
 
     Args:
         log_file: Log source supplied to the loader.
 
     Returns:
-        True for sources such as ``s3://bucket/run.json``, ``file:/run.eval``,
-        and ``file:///run.eval``.
+        The parsed URI, or None for a local path.
+
+    Raises:
+        ValueError: If the URI cannot be parsed.
     """
-    scheme = urlsplit(log_file).scheme
-    return bool(scheme) and (scheme == "file" or "://" in log_file)
+    try:
+        parsed = urlsplit(log_file)
+    except ValueError:
+        # urlsplit may quote the unredacted authority in the original exception.
+        raise ValueError("Invalid log source URI") from None
+    if parsed.scheme and (parsed.scheme == "file" or "://" in log_file):
+        return parsed
+    return None
 
 
 def _file_uri_to_path(log_file: str) -> Path:
@@ -224,9 +235,10 @@ def _local_log_path(log_file: str) -> Path | None:
         The path named by a local path or ``file:`` URI, without following
         links, or None for a source held by a remote provider.
     """
-    if not _is_log_uri(log_file):
+    parsed = _parse_log_uri(log_file)
+    if parsed is None:
         return Path(log_file)
-    if urlsplit(log_file).scheme != "file":
+    if parsed.scheme != "file":
         return None
     return _file_uri_to_path(log_file)
 
@@ -243,26 +255,48 @@ def _resolve_file_uri_path(log_file: str) -> Path:
     return _resolve_log_path(str(_file_uri_to_path(log_file)))
 
 
-def _display_log_source(log_file: str) -> str:
-    """Return a log source safe for diagnostic output.
+def _redact_log_source(log_file: str) -> str:
+    """Remove credentials from every URI in a log source.
 
     Args:
         log_file: Local path or filesystem URI supplied to the loader.
 
     Returns:
-        The original local path, or a URI without userinfo, query, or fragment.
+        The source as supplied if clean, a stripped URI, or a placeholder for
+        a sensitive fsspec chain.
+    """
+    components = _URI_CHAIN_SEPARATOR.split(log_file)
+    for component in components:
+        parsed = _parse_log_uri(component)
+        if parsed is None or not (
+            "@" in parsed.netloc or "?" in component or "#" in component
+        ):
+            continue
+        if len(components) > 1:
+            return "<redacted log URI>"
+        return urlunsplit(
+            parsed._replace(
+                netloc=parsed.netloc.rpartition("@")[2],
+                query="",
+                fragment="",
+            ),
+        )
+    return log_file
+
+
+def _display_log_source(log_file: str) -> str:
+    """Return a redacted log source, using a placeholder if parsing fails.
+
+    Args:
+        log_file: Local path or filesystem URI supplied to the loader.
+
+    Returns:
+        The safe source label for diagnostics.
     """
     try:
-        if not _is_log_uri(log_file):
-            return log_file
-        parsed = urlsplit(log_file)
+        return _redact_log_source(log_file)
     except ValueError:
         return "<invalid log source>"
-    if "@" not in parsed.netloc and not parsed.query and not parsed.fragment:
-        return log_file
-    return urlunsplit(
-        parsed._replace(netloc=parsed.netloc.rpartition("@")[2], query="", fragment=""),
-    )
 
 
 def _reject_uri_credentials(log_location: str) -> None:
@@ -270,16 +304,16 @@ def _reject_uri_credentials(log_location: str) -> None:
 
     Inspect and fsspec log the locations they read and list at DEBUG before
     Inspect Brief sees any result, so a URI carrying credentials must never
-    reach them. Rejecting it up front also leaves every later diagnostic free of
-    secrets.
+    reach them.
 
     Args:
         log_location: Local path or URI of a log or log directory.
 
     Raises:
-        ValueError: If the URI carries userinfo, a query string, or a fragment.
+        ValueError: If the URI is malformed or carries userinfo, a query string,
+            or a fragment.
     """
-    if _display_log_source(log_location) != log_location:
+    if _redact_log_source(log_location) != log_location:
         raise ValueError(_URI_CREDENTIALS_ERROR)
 
 
@@ -295,9 +329,9 @@ def _log_source_key(log_file: str) -> str | Path:
     Returns:
         The unchanged URI for remote/provider sources, or the canonical local path.
     """
-    if _is_log_uri(log_file):
-        _reject_uri_credentials(log_file)
-        parsed = urlsplit(log_file)
+    _reject_uri_credentials(log_file)
+    parsed = _parse_log_uri(log_file)
+    if parsed is not None:
         if parsed.scheme == "file":
             return _resolve_file_uri_path(log_file)
         validate_log_suffix(PurePosixPath(parsed.path).suffix)
@@ -329,8 +363,8 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     Returns:
         A sibling location with a `.json` suffix.
     """
-    if _is_log_uri(log_file):
-        parsed = urlsplit(log_file)
+    parsed = _parse_log_uri(log_file)
+    if parsed is not None:
         return urlunsplit(
             parsed._replace(path=str(PurePosixPath(parsed.path).with_suffix(".json"))),
         )
@@ -1126,6 +1160,8 @@ def export_results(
     """
     # Prepare the output path
     if not csv_path:
+        if log_dir:
+            _reject_uri_credentials(log_dir)
         csv_path = str(Path(log_dir or Path.cwd()) / "brief_results.csv")
     if log_progress:
         logger.info("📦 Gathering results to export to %s", csv_path)

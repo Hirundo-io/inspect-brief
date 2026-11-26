@@ -110,6 +110,23 @@ def test_export_results_filters_tasks(tmp_path: Path) -> None:
     assert all("task-c" not in row for row in rows)
 
 
+def test_export_results_rejects_unsafe_log_dir_before_preparing_default_output(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        caplog.at_level(logging.INFO),
+        pytest.raises(ValueError, match="does not accept a log URI"),
+    ):
+        export_results(log_dir="https://example.test/runs?query=placeholder")
+
+    assert "placeholder" not in caplog.text
+    assert list(tmp_path.iterdir()) == []
+
+
 @pytest.mark.parametrize(
     "run_id",
     [
@@ -385,10 +402,17 @@ def test_load_logs_decodes_file_uri_before_validation_and_reading(
     assert loaded == [str(log_path)]
 
 
+@pytest.mark.parametrize(
+    "log_uri",
+    [
+        "s3://inspect-logs/run.eval",
+        "simplecache::s3://inspect-logs/run.eval",
+    ],
+)
 def test_load_logs_preserves_and_deduplicates_remote_uris(
     monkeypatch: pytest.MonkeyPatch,
+    log_uri: str,
 ) -> None:
-    log_uri = "s3://inspect-logs/run.eval"
     loaded: list[str] = []
     monkeypatch.setattr(core, "read_eval_log", lambda path: loaded.append(path) or path)
 
@@ -477,6 +501,39 @@ def test_load_logs_rejects_uri_credentials_before_inspect_reads_them(
         # The failed source is still named, with its secrets stripped.
         assert "https://example.com/logs/run.eval" in diagnostics
         assert "does not accept a log URI" in str(error.value.__cause__)
+
+
+@pytest.mark.parametrize(
+    ("location", "expected_cause"),
+    [
+        pytest.param(
+            "https://placeholder@example\N{FULLWIDTH COLON}443/run.eval",
+            "Invalid log source URI",
+            id="malformed-authority",
+        ),
+        pytest.param(
+            "simplecache::https://placeholder@example.test/run.eval",
+            "does not accept a log URI",
+            id="chained-uri",
+        ),
+    ],
+)
+def test_load_logs_excludes_unsafe_uri_details_from_diagnostics(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    location: str,
+    expected_cause: str,
+) -> None:
+    def unexpected_read(_source: str) -> EvalLog:
+        pytest.fail("Invalid log source must be rejected before reading")
+
+    monkeypatch.setattr(core, "read_eval_log", unexpected_read)
+
+    with pytest.raises(ValueError, match="Could not load 1 Inspect log") as error:
+        load_logs(log_files=location, fail_on_error=True)
+
+    assert expected_cause in str(error.value.__cause__)
+    assert "placeholder" not in f"{caplog.text}\n{error.value}\n{error.value.__cause__}"
 
 
 def test_load_logs_skips_unresolvable_paths_and_continues(
