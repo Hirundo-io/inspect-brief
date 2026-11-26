@@ -7,8 +7,9 @@ from pathlib import Path
 
 from inspect_brief.core import (
     InspectScore,
-    _is_log_uri,
     _log_source_key,
+    _parse_log_uri,
+    _reject_uri_credentials,
     target_metric_name,
     validate_log_suffix,
 )
@@ -119,11 +120,12 @@ def parse_log_files(values: Iterable[str] | None) -> list[str] | None:
 
     resolved_log_files: list[str] = []
     for value in log_files:
-        if _is_log_uri(value):
+        if _parse_log_uri(value) is not None:
             _log_source_key(value)
             resolved_log_files.append(value)
             continue
 
+        _reject_uri_credentials(value)
         path = Path(value)
         validate_log_suffix(path.suffix)
         if not path.exists():

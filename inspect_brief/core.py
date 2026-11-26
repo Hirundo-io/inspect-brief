@@ -3,12 +3,13 @@
 import csv
 import logging
 import os
+import re
 import stat
 import tempfile
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Literal, NotRequired, Protocol, TypedDict, get_type_hints
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import SplitResult, urlsplit, urlunsplit
 from urllib.request import url2pathname
 
 from fsspec.core import url_to_fs
@@ -27,11 +28,19 @@ _SUPPORTED_LOG_SUFFIXES = tuple(
     f".{log_format}" for log_format in _SUPPORTED_LOG_FORMATS
 )
 _SUPPORTED_LOG_ERROR = "Inspect Brief supports only .eval and .json log files"
-_LOG_DIR_CREDENTIALS_ERROR = (
-    "Inspect Brief does not accept a log directory URI carrying userinfo, a "
-    "query string, or a fragment: the storage backend records the directory "
-    "it lists in its own diagnostics, where Inspect Brief cannot redact it. "
-    "Supply provider credentials through the environment instead."
+_URI_CREDENTIALS_ERROR = (
+    "Inspect Brief does not accept a log URI carrying credentials, a query string, "
+    "or a fragment: Inspect and its storage backends record the locations they "
+    "read and list in their own diagnostics, where Inspect Brief cannot redact "
+    "them. Supply provider credentials through the environment instead."
+)
+# An explicit scheme after fsspec's separator starts another URI.
+_URI_CHAIN_SEPARATOR: re.Pattern[str] = re.compile(r"::(?=[a-zA-Z][a-zA-Z0-9+.-]*://)")
+# adlfs uses the text before @ as the container on public Azure storage hosts.
+_AZURE_CONTAINER_URI: re.Pattern[str] = re.compile(
+    r"(?:az|abfss?)://"
+    r"(?=[a-z0-9-]{3,63}@)[a-z0-9]+(?:-[a-z0-9]+)*@"
+    r"[a-z0-9]{3,24}\.(?:blob|dfs)\.core\.windows\.net(?=[/?#]|\Z)",
 )
 
 
@@ -127,7 +136,8 @@ def _discover_log_paths(
     Discovery defers to Inspect's own listing, which accepts `.eval` logs by
     suffix but requires Inspect's timestamped log name for other formats. Files
     that merely sit beside the logs, such as an eval-set manifest or a
-    target-metrics file, are therefore left alone.
+    target-metrics file, are therefore left alone. A directory URI carrying
+    credentials is rejected by ``_reject_uri_credentials`` before Inspect sees it.
 
     Args:
         log_dir: Directory to scan recursively for evaluation logs.
@@ -138,14 +148,9 @@ def _discover_log_paths(
         formats is read from its native `.eval` log, or an empty list when
         scanning fails.
 
-    Raises:
-        ValueError: If the directory URI carries credentials.
-
     """
-    # Nothing below redacts `log_dir`, because this guard leaves it with
-    # nothing for `_display_log_source` and `_redact_log_error` to remove.
-    if _display_log_source(log_dir) != log_dir:
-        raise ValueError(_LOG_DIR_CREDENTIALS_ERROR)
+    # Past this guard `log_dir` holds nothing that needs redacting.
+    _reject_uri_credentials(log_dir)
     try:
         log_infos = list_eval_logs(log_dir, formats=list(_SUPPORTED_LOG_FORMATS))
     # Inspect lists through fsspec, whose backends raise provider-specific errors.
@@ -187,18 +192,26 @@ def _resolve_log_path(log_file: str) -> Path:
     return path.resolve(strict=True)
 
 
-def _is_log_uri(log_file: str) -> bool:
-    """Return whether a log source uses an explicit URI or provider scheme.
+def _parse_log_uri(log_file: str) -> SplitResult | None:
+    """Parse a log URI without exposing invalid input in errors.
 
     Args:
         log_file: Log source supplied to the loader.
 
     Returns:
-        True for sources such as ``s3://bucket/run.json``, ``file:/run.eval``,
-        and ``file:///run.eval``.
+        The parsed URI, or None for a local path.
+
+    Raises:
+        ValueError: If the URI cannot be parsed.
     """
-    scheme = urlsplit(log_file).scheme
-    return bool(scheme) and (scheme == "file" or "://" in log_file)
+    try:
+        parsed = urlsplit(log_file)
+    except ValueError:
+        # urlsplit may quote the unredacted authority in the original exception.
+        raise ValueError("Invalid log source URI") from None
+    if parsed.scheme and (parsed.scheme == "file" or "://" in log_file):
+        return parsed
+    return None
 
 
 def _file_uri_to_path(log_file: str) -> Path:
@@ -228,9 +241,10 @@ def _local_log_path(log_file: str) -> Path | None:
         The path named by a local path or ``file:`` URI, without following
         links, or None for a source held by a remote provider.
     """
-    if not _is_log_uri(log_file):
+    parsed = _parse_log_uri(log_file)
+    if parsed is None:
         return Path(log_file)
-    if urlsplit(log_file).scheme != "file":
+    if parsed.scheme != "file":
         return None
     return _file_uri_to_path(log_file)
 
@@ -247,47 +261,73 @@ def _resolve_file_uri_path(log_file: str) -> Path:
     return _resolve_log_path(str(_file_uri_to_path(log_file)))
 
 
-def _display_log_source(log_file: str) -> str:
-    """Return a log source safe for diagnostic output.
+def _redact_log_source(log_file: str) -> str:
+    """Remove credentials from every URI in a log source.
 
     Args:
         log_file: Local path or filesystem URI supplied to the loader.
 
     Returns:
-        The original local path, or a URI without userinfo, query, or fragment.
+        The source as supplied if clean, a stripped URI, or a placeholder for
+        a sensitive fsspec chain.
     """
-    try:
-        if not _is_log_uri(log_file):
-            return log_file
-        parsed = urlsplit(log_file)
-    except ValueError:
-        return "<invalid log source>"
-    if "@" not in parsed.netloc and not parsed.query and not parsed.fragment:
-        return log_file
-    return urlunsplit(
-        parsed._replace(netloc=parsed.netloc.rpartition("@")[2], query="", fragment=""),
-    )
+    components = _URI_CHAIN_SEPARATOR.split(log_file)
+    for component in components:
+        parsed = _parse_log_uri(component)
+        if parsed is None:
+            continue
+        netloc = parsed.netloc
+        has_credential_userinfo = (
+            "@" in netloc and _AZURE_CONTAINER_URI.match(component) is None
+        )
+        if not (has_credential_userinfo or "?" in component or "#" in component):
+            continue
+        if len(components) > 1:
+            return "<redacted log URI>"
+        if has_credential_userinfo:
+            netloc = netloc.rpartition("@")[2]
+        return urlunsplit(parsed._replace(netloc=netloc, query="", fragment=""))
+    return log_file
 
 
-def _redact_log_error(log_file: str, error: Exception) -> Exception:
-    """Remove sensitive URI details from a provider error.
+def _display_log_source(log_file: str) -> str:
+    """Return a redacted log source, using a placeholder if parsing fails.
 
     Args:
-        log_file: Log source associated with the error.
-        error: Error raised while loading the source.
+        log_file: Local path or filesystem URI supplied to the loader.
 
     Returns:
-        The original error for non-sensitive sources, or a safe replacement.
+        The safe source label for diagnostics.
     """
-    if _display_log_source(log_file) == log_file:
-        return error
-    return RuntimeError(f"{type(error).__name__} while accessing redacted log URI")
+    try:
+        return _redact_log_source(log_file)
+    except ValueError:
+        return "<invalid log source>"
+
+
+def _reject_uri_credentials(log_location: str) -> None:
+    """Reject a log location whose URI carries credentials.
+
+    Inspect and fsspec log the locations they read and list at DEBUG before
+    Inspect Brief sees any result, so a URI carrying credentials must never
+    reach them.
+
+    Args:
+        log_location: Local path or URI of a log or log directory.
+
+    Raises:
+        ValueError: If the URI is malformed or carries credentials, a query string,
+            or a fragment.
+    """
+    if _redact_log_source(log_location) != log_location:
+        raise ValueError(_URI_CREDENTIALS_ERROR)
 
 
 def _log_source_key(log_file: str) -> str | Path:
     """Validate a log source and return its stable deduplication key.
 
-    Unsupported log formats are rejected by ``validate_log_suffix``.
+    Unsupported log formats are rejected by ``validate_log_suffix``, and URIs
+    carrying credentials by ``_reject_uri_credentials``.
 
     Args:
         log_file: Local path or filesystem URI supplied to the loader.
@@ -295,8 +335,9 @@ def _log_source_key(log_file: str) -> str | Path:
     Returns:
         The unchanged URI for remote/provider sources, or the canonical local path.
     """
-    if _is_log_uri(log_file):
-        parsed = urlsplit(log_file)
+    _reject_uri_credentials(log_file)
+    parsed = _parse_log_uri(log_file)
+    if parsed is not None:
         if parsed.scheme == "file":
             return _resolve_file_uri_path(log_file)
         validate_log_suffix(PurePosixPath(parsed.path).suffix)
@@ -328,8 +369,8 @@ def _json_sidecar_path(log_file: str) -> str | Path:
     Returns:
         A sibling location with a `.json` suffix.
     """
-    if _is_log_uri(log_file):
-        parsed = urlsplit(log_file)
+    parsed = _parse_log_uri(log_file)
+    if parsed is not None:
         return urlunsplit(
             parsed._replace(path=str(PurePosixPath(parsed.path).with_suffix(".json"))),
         )
@@ -412,35 +453,26 @@ def _export_log_json(
     log_file: str,
     source_keys: set[str | Path],
 ) -> None:
-    """Export a JSON sidecar without exposing URI credentials.
+    """Export a JSON sidecar beside an Inspect evaluation log.
 
     Args:
         log: Inspect evaluation log to export.
-        log_file: Source location of the evaluation log.
+        log_file: Validated source location of the evaluation log.
         source_keys: Validated input locations that sidecars must not overwrite.
     """
-    display_source = _display_log_source(log_file)
-    if display_source != log_file:
-        logger.warning(
-            "❌ Could not export Inspect log %s as JSON: URI sidecars with "
-            "userinfo, query, or fragment components are not supported",
-            display_source,
-        )
-        return
-
-    logger.info("📝 Exporting Inspect log %s as JSON", display_source)
+    logger.info("📝 Exporting Inspect log %s as JSON", log_file)
     try:
         destination = _json_sidecar_path(log_file)
         if _sidecar_overwrites_input(destination, source_keys):
             logger.warning(
                 "Skipping JSON sidecar for %s: destination is a symlink or "
                 "aliases an input log",
-                display_source,
+                log_file,
             )
             return
         write_eval_log(log, destination, format="json")
     except Exception:  # ruff: ignore[blind-except] -- Inspect writers expose no common error type.
-        logger.warning("❌ Could not export Inspect log %s", display_source)
+        logger.warning("❌ Could not export Inspect log %s", log_file)
 
 
 def get_runtime_from_timestamps(started_at: str, completed_at: str) -> int | str:
@@ -476,15 +508,13 @@ def load_logs(
 
     Args:
         log_dir (optional): Path or URI of the directory containing the Inspect
-            logs. A URI must not carry userinfo, a query string, or a fragment,
-            because the storage backend records the directory it lists in its
-            own diagnostics.
+            logs. URIs with credentials, query strings, or fragments are rejected
+            before storage backends can log them. Standard Azure Blob and Data Lake
+            URIs may include the container name before the account host.
         log_files (optional): Path or list of paths to the Inspect evaluation
-            log files.
+            log files. The same URI restrictions apply as for ``log_dir``.
         export_jsons (optional): Whether to export the Inspect logs as JSON sidecars.
-            URI sources containing userinfo, query, or fragment components are
-            skipped because they cannot be forwarded safely to the writer.
-            Sidecars whose destinations alias any input are also skipped.
+            Sidecars whose destinations alias any input are skipped.
         fail_on_error: Whether to raise after processing all paths if any log
             fails to load.
 
@@ -525,7 +555,6 @@ def load_logs(
         # Inspect log readers and storage backends may raise provider-specific
         # exceptions. Isolate each path so one malformed log does not stop the rest.
         except Exception as error:  # ruff: ignore[blind-except]
-            error = _redact_log_error(log_file, error)
             logger.warning(
                 "❌ Could not load Inspect log %s: %s",
                 display_source,
@@ -1136,6 +1165,8 @@ def export_results(
     """
     # Prepare the output path
     if not csv_path:
+        if log_dir:
+            _reject_uri_credentials(log_dir)
         csv_path = str(Path(log_dir or Path.cwd()) / "brief_results.csv")
     if log_progress:
         logger.info("📦 Gathering results to export to %s", csv_path)

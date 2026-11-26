@@ -154,8 +154,16 @@ def test_cli_accepts_repeatable_and_comma_separated_log_files(
     assert exported["log_files"] == [str(tmp_path / name) for name in expected_names]
 
 
+@pytest.mark.parametrize(
+    "source",
+    [
+        "s3://bucket/remote.json",
+        "abfs://run-logs@storageaccount.dfs.core.windows.net/run.eval",
+    ],
+)
 def test_cli_accepts_filesystem_uri_log_sources(
     monkeypatch: pytest.MonkeyPatch,
+    source: str,
 ) -> None:
     exported: dict[str, object] = {}
     monkeypatch.setattr(cli, "configure_logging", lambda: None)
@@ -167,11 +175,11 @@ def test_cli_accepts_filesystem_uri_log_sources(
 
     result = CliRunner().invoke(
         cli.app,
-        ["--log-files", "s3://bucket/remote.json"],
+        ["--log-files", source],
     )
 
     assert result.exit_code == 0
-    assert exported["log_files"] == ["s3://bucket/remote.json"]
+    assert exported["log_files"] == [source]
 
 
 @pytest.mark.parametrize("path_kind", ["missing", "directory"])
